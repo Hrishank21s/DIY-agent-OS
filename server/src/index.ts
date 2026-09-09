@@ -1,0 +1,209 @@
+import Fastify, { type FastifyInstance } from 'fastify';
+import cookie from '@fastify/cookie';
+import helmet from '@fastify/helmet';
+import rateLimit from '@fastify/rate-limit';
+import sensible from '@fastify/sensible';
+import websocket from '@fastify/websocket';
+import fastifyStatic from '@fastify/static';
+import path from 'node:path';
+import fs from 'node:fs';
+import { nanoid } from 'nanoid';
+import { config } from './config.js';
+import { getDb, clearDbSingleton } from './db/index.js';
+import { seed } from './db/seed.js';
+import { initLogger, getLogger } from './lib/logger.js';
+import { AuditService } from './services/audit.js';
+import { TaskService } from './services/tasks.js';
+import { AgentService } from './services/agents.js';
+import { SettingsService } from './services/settings.js';
+import { MemoryService } from './services/memory.js';
+import { ProjectService } from './services/projects.js';
+import { NoteService } from './services/notes.js';
+import { AutomationService } from './services/automations.js';
+import { TaskQueue } from './workers/task-queue.js';
+import { Scheduler } from './scheduler/index.js';
+
+import { authRoutes } from './routes/auth.js';
+import { chatRoutes } from './routes/chat.js';
+import { taskRoutes } from './routes/tasks.js';
+import { agentRoutes } from './routes/agents.js';
+import { memoryRoutes } from './routes/memory.js';
+import { noteRoutes } from './routes/notes.js';
+import { projectRoutes } from './routes/projects.js';
+import { automationRoutes } from './routes/automations.js';
+import { approvalRoutes } from './routes/approvals.js';
+import { settingsRoutes } from './routes/settings.js';
+import { systemRoutes } from './routes/system.js';
+import { logsRoutes } from './routes/logs.js';
+import { realtimeRoutes } from './routes/realtime.js';
+
+export interface ServerInstance {
+  app: FastifyInstance;
+  queue: TaskQueue;
+  scheduler: Scheduler;
+  startedAt: Date;
+}
+
+export async function buildServer(opts?: { dataDir?: string }): Promise<ServerInstance> {
+  if (opts?.dataDir) {
+    process.env.AGENTOS_DATA_DIR = opts.dataDir;
+  }
+
+  const audit = new AuditService();
+  const logger = initLogger(e =>
+    audit.record(e.message, e.category as string, { level: e.level } as Record<string, unknown>),
+  );
+  const log = getLogger();
+
+  const db = getDb();
+  seed(db);
+
+  const tasks = new TaskService();
+  const agents = new AgentService();
+  const settings = new SettingsService();
+  const memory = new MemoryService();
+  const projects = new ProjectService();
+  const notes = new NoteService();
+  const automations = new AutomationService();
+
+  const startedAt = new Date();
+
+  const queue = new TaskQueue(tasks, agents, settings);
+  const scheduler = new Scheduler(automations, tasks);
+
+  const app = Fastify({
+    logger: false,
+    trustProxy: true,
+    bodyLimit: 2 * 1024 * 1024,
+  });
+
+  await app.register(cookie);
+  await app.register(helmet, {
+    contentSecurityPolicy: process.env.NODE_ENV === 'production',
+  });
+  await app.register(sensible);
+  await app.register(websocket);
+  await app.register(rateLimit, {
+    global: true,
+    max: 500,
+    timeWindow: '1 minute',
+  });
+  // Validate origin for CSRF protection on state-changing requests
+  app.addHook('onRequest', async (req, reply) => {
+    const method = req.method;
+    if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+      const origin = req.headers.origin;
+      if (origin) {
+        const allowed = new URL(origin);
+        const isLocalhost = allowed.hostname === 'localhost' || allowed.hostname === '127.0.0.1';
+        if (!isLocalhost) {
+          // Cross-origin state changes are rejected unless same-origin
+          const expected = `${req.protocol}://${req.headers.host}`;
+          const actual = `${allowed.protocol}//${allowed.host}`;
+          if (actual !== expected) {
+            return reply.code(403).send({ error: 'Cross-origin request rejected' });
+          }
+        }
+      }
+    }
+  });
+
+  // Recover stale tasks before starting the queue
+  tasks.recoverStaleTasks();
+
+  // Register routes
+  authRoutes(app);
+  chatRoutes(app);
+  taskRoutes(app, () => queue);
+  agentRoutes(app);
+  memoryRoutes(app);
+  noteRoutes(app);
+  projectRoutes(app);
+  automationRoutes(app);
+  approvalRoutes(app);
+  settingsRoutes(app);
+  systemRoutes(app, { getQueue: () => queue, getScheduler: () => scheduler, startedAt });
+  logsRoutes(app);
+  realtimeRoutes(app);
+
+  app.get('/api/health', async (_req, reply) => {
+    return reply.send({ status: 'ok', version: '1.0.0' });
+  });
+
+  // Serve the built React frontend if present
+  const clientDist = path.resolve(config.rootDir, 'client', 'dist');
+  if (fs.existsSync(path.join(clientDist, 'index.html'))) {
+    await app.register(fastifyStatic, {
+      root: clientDist,
+      prefix: '/',
+    });
+    app.setNotFoundHandler((req, reply) => {
+      if (req.url.startsWith('/api/')) {
+        return reply.code(404).send({ error: 'Not found' });
+      }
+      return reply.sendFile('index.html');
+    });
+  } else {
+    app.get('/', async (_req, reply) => {
+      return reply.type('text/html').send(
+        `<html><head><title>AgentOS</title></head><body><h1>AgentOS</h1>` +
+          `<p>API server is running. Build the frontend with <code>npm run build -w client</code>.</p>` +
+          `<p><a href="/api/system/status">System status API</a></p></body></html>`,
+      );
+    });
+  }
+
+  app.setErrorHandler((err, req, reply) => {
+    const e = err as Error & { statusCode?: number };
+    log.error('app', 'Unhandled error', {
+      error: e.message,
+      url: req.url,
+      method: req.method,
+    });
+    const status = e.statusCode && e.statusCode >= 400 && e.statusCode < 600 ? e.statusCode : 500;
+    reply.code(status).send({ error: status === 500 ? 'Internal server error' : e.message });
+  });
+
+  return { app, queue, scheduler, startedAt };
+}
+
+export async function startServer(): Promise<ServerInstance> {
+  const { app, queue, scheduler } = await buildServer();
+  queue.start();
+  scheduler.start();
+
+  await app.listen({ port: config.port, host: config.host });
+  getLogger().info('system', `AgentOS listening on ${config.host}:${config.port}`);
+
+  const shutdown = async (signal: string) => {
+    getLogger().info('system', `Received ${signal}, shutting down...`);
+    await scheduler.stop();
+    await queue.stop();
+    try {
+      await app.close();
+    } catch {}
+    clearDbSingleton();
+    process.exit(0);
+  };
+
+  process.on('SIGINT', () => void shutdown('SIGINT'));
+  process.on('SIGTERM', () => void shutdown('SIGTERM'));
+
+  return { app, queue, scheduler, startedAt: new Date() };
+}
+
+declare module 'fastify' {
+  interface FastifyRequest {
+    user?: { id: string; username: string; mustChangePassword: boolean };
+  }
+}
+
+const isMain =
+  process.argv[1] &&
+  (process.argv[1].endsWith('index.ts') ||
+    process.argv[1].endsWith('index.js') ||
+    import.meta.url === `file://${process.argv[1]}`);
+
+if (isMain) {
+  void startServer();
+}

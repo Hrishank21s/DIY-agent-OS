@@ -1,0 +1,11 @@
+node_modules/
+dist/
+*.log
+.env
+.DS_Store
+.agentos-data/
+data/
+coverage/
+*.db
+*.db-wal
+*.db-shm

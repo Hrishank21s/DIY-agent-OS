@@ -1,0 +1,28 @@
+{
+  "name": "agentos",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Self-hosted personal AI agent platform for macOS",
+  "workspaces": [
+    "server",
+    "client"
+  ],
+  "scripts": {
+    "dev": "concurrently -n server,client -c blue,green \"npm run dev -w server\" \"npm run dev -w client\"",
+    "build": "npm run build -w server && npm run build -w client",
+    "start": "npm run start -w server",
+    "test": "npm run test -w server && npm run test -w client",
+    "lint": "npm run lint -w server && npm run lint -w client",
+    "typecheck": "npm run typecheck -w server && npm run typecheck -w client",
+    "migrate": "npm run migrate -w server",
+    "doctor": "npm run doctor -w server",
+    "cli": "npm run cli -w server",
+    "postinstall": "npm run build -w client"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.5"
+  }
+}

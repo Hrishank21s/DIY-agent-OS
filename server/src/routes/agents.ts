@@ -18,7 +18,7 @@ const agentSchema = z.object({
   system_prompt: z.string().max(20000).optional(),
   model: z.string().max(200).nullable().optional(),
   enabled: z.boolean().optional(),
-  approval_policy: z.enum(['safe', 'low', 'medium', 'high', 'always_approve']).optional(),
+  approval_policy: z.enum(['safe', 'low', 'medium', 'high', 'always_require_approval', 'always_approve']).optional(),
   timeout_seconds: z.number().int().min(10).max(86400).optional(),
   max_concurrent_tasks: z.number().int().min(1).max(20).optional(),
   permissions: z.array(permissionSchema).optional(),
@@ -54,7 +54,7 @@ export function agentRoutes(app: FastifyInstance): void {
       system_prompt: input.system_prompt,
       model: input.model,
       enabled: input.enabled === undefined ? 1 : input.enabled ? 1 : 0,
-      approval_policy: input.approval_policy || 'always_approve',
+      approval_policy: input.approval_policy || 'always_require_approval',
       timeout_seconds: input.timeout_seconds,
       max_concurrent_tasks: input.max_concurrent_tasks,
       permissions: perms,
@@ -86,7 +86,7 @@ export function agentRoutes(app: FastifyInstance): void {
     return { agent };
   });
 
-  app.delete('/api/v1/agents/:id', { preHandler: requireAuth }, async (req, reply) => {
+  app.delete('/api/v1/agents/:id', { preHandler: requireAuth }, async (req) => {
     const id = (req.params as { id: string }).id;
     agents.delete(id);
     return { ok: true };

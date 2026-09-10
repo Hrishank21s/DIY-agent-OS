@@ -74,6 +74,13 @@ export class ChatService {
     return (db.db.prepare('SELECT * FROM conversations WHERE id = ?').get(id) as unknown as Conversation) || null;
   }
 
+  getOwnedConversation(id: string, userId: string): Conversation | null {
+    const db = getDb();
+    return (db.db
+      .prepare('SELECT * FROM conversations WHERE id = ? AND user_id = ?')
+      .get(id, userId) as unknown as Conversation) || null;
+  }
+
   listConversations(userId: string, opts?: { includeArchived?: boolean; search?: string }): Conversation[] {
     const db = getDb();
     let sql = 'SELECT * FROM conversations WHERE user_id = ?';

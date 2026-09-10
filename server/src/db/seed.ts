@@ -1,5 +1,7 @@
 import { nanoid } from 'nanoid';
-import { hashPassword } from '../lib/password.js';
+import { hashPassword, generateToken } from '../lib/password.js';
+import { getLogger } from '../lib/logger.js';
+import { config } from '../config.js';
 import type { Db } from './index.js';
 
 export function seed(db: Db): void {
@@ -8,19 +10,109 @@ export function seed(db: Db): void {
   seedSettings(db);
 }
 
+export const DEFAULT_BOOTSTRAP_USER = 'admin';
+
+const WEAK_PASSWORDS = new Set([
+  'admin',
+  'admin123',
+  'password',
+  'password123',
+  'letmein',
+  '12345678',
+  'qwerty123',
+  'agentos',
+  'agentos123',
+]);
+
+export function isValidBootstrapPassword(pw: string): boolean {
+  if (!pw || pw.length < 8) return false;
+  if (WEAK_PASSWORDS.has(pw.toLowerCase())) return false;
+  return true;
+}
+
+export interface BootstrapCredentials {
+  username: string;
+  password: string;
+  generated: boolean;
+}
+
+/**
+ * Resolve the initial admin credentials from the environment.
+ *
+ * - Username: AGENTOS_BOOTSTRAP_USERNAME (default 'admin').
+ * - Password: AGENTOS_BOOTSTRAP_PASSWORD. If omitted, or too weak for production,
+ *   a strong random password is generated and printed once to the console.
+ */
+export function resolveBootstrapCredentials(): BootstrapCredentials {
+  const username = (process.env.AGENTOS_BOOTSTRAP_USERNAME || DEFAULT_BOOTSTRAP_USER).trim();
+  const provided = process.env.AGENTOS_BOOTSTRAP_PASSWORD || '';
+  const production = config.runtimeMode === 'production';
+  const usable = provided.length >= 8 && (!production || isValidBootstrapPassword(provided));
+  if (provided && production && !usable) {
+    getLogger().warn(
+      'auth',
+      'AGENTOS_BOOTSTRAP_PASSWORD is missing or too weak for production; a strong random password will be generated and printed once.',
+    );
+  }
+  if (usable && provided) {
+    return { username, password: provided, generated: false };
+  }
+  return { username, password: generateToken(24), generated: true };
+}
+
+function createUser(db: Db, username: string, password: string): void {
+  const hash = hashPassword(password);
+  db.db
+    .prepare(
+      'INSERT INTO users (id, username, password_hash, must_change_password) VALUES (?, ?, ?, 1)',
+    )
+    .run(nanoid(), username, hash);
+}
+
+function printGenerated(creds: BootstrapCredentials): void {
+  if (!creds.generated) return;
+  console.log('');
+  console.log('========================================================');
+  console.log('  A new AgentOS admin account was created.');
+  console.log(`  Username: ${creds.username}`);
+  console.log(`  Password: ${creds.password}`);
+  console.log('  (set AGENTOS_BOOTSTRAP_USERNAME / AGENTOS_BOOTSTRAP_PASSWORD to choose)');
+  console.log('  This password is shown only now. Change it after logging in.');
+  console.log('========================================================');
+  console.log('');
+}
+
 function bootstrapAdmin(db: Db): void {
   const existing = db.db
     .prepare('SELECT id FROM users LIMIT 1')
     .get() as { id: string } | undefined;
   if (existing) return;
 
-  const id = nanoid();
-  const hash = hashPassword('admin123');
-  db.db
-    .prepare(
-      'INSERT INTO users (id, username, password_hash, must_change_password) VALUES (?, ?, ?, 1)',
-    )
-    .run(id, 'admin', hash);
+  const creds = resolveBootstrapCredentials();
+  createUser(db, creds.username, creds.password);
+  printGenerated(creds);
+}
+
+/**
+ * Re-create/reset the bootstrap (admin) user to the credentials resolved from
+ * the environment. Used by `agentos reset-admin`.
+ */
+export function resetBootstrapUser(db: Db): void {
+  const creds = resolveBootstrapCredentials();
+  const existing = db.db
+    .prepare('SELECT id FROM users WHERE username = ?')
+    .get(creds.username) as { id: string } | undefined;
+  if (existing) {
+    const nh = hashPassword(creds.password);
+    db.db
+      .prepare(
+        "UPDATE users SET password_hash = ?, must_change_password = 1, updated_at = datetime('now') WHERE id = ?",
+      )
+      .run(nh, existing.id);
+  } else {
+    createUser(db, creds.username, creds.password);
+  }
+  printGenerated(creds);
 }
 
 interface SeedAgent {
@@ -55,7 +147,7 @@ function ensureDefaultAgents(db: Db): void {
       system_prompt:
         'You are the General agent in AgentOS. You have balanced file, shell, and network access. Be helpful and concise.',
       model: null,
-      approval_policy: 'always_approve',
+      approval_policy: 'always_require_approval',
       perms: { files: 'rw', shell: 'r', git: 'rw', network: 'r', system: 'n', scheduler: 'n', memory: 'rw' },
     },
     {
@@ -65,7 +157,7 @@ function ensureDefaultAgents(db: Db): void {
       system_prompt:
         'You are the Coder agent in AgentOS. You have strong filesystem and terminal access. Write clean, well-tested code.',
       model: null,
-      approval_policy: 'always_approve',
+      approval_policy: 'always_require_approval',
       perms: { files: 'rwx', shell: 'rwx', git: 'rw', network: 'r', system: 'n', scheduler: 'n', memory: 'r' },
     },
     {
@@ -75,7 +167,7 @@ function ensureDefaultAgents(db: Db): void {
       system_prompt:
         'You are the Research agent in AgentOS. You focus on web research, gathering information, and storing notes and memories.',
       model: null,
-      approval_policy: 'always_approve',
+      approval_policy: 'always_require_approval',
       perms: { files: 'r', shell: 'n', git: 'n', network: 'rwx', system: 'n', scheduler: 'n', memory: 'rwx' },
     },
     {
@@ -85,7 +177,7 @@ function ensureDefaultAgents(db: Db): void {
       system_prompt:
         'You are the Automation agent in AgentOS. You create and manage automated jobs, schedules, and workflows.',
       model: null,
-      approval_policy: 'always_approve',
+      approval_policy: 'always_require_approval',
       perms: { files: 'rw', shell: 'rw', git: 'r', network: 'r', system: 'n', scheduler: 'rwx', memory: 'rw' },
     },
     {
@@ -95,7 +187,7 @@ function ensureDefaultAgents(db: Db): void {
       system_prompt:
         'You are the System agent in AgentOS. You handle system administration, services, and configuration. All dangerous actions require approval.',
       model: null,
-      approval_policy: 'always_approve',
+      approval_policy: 'always_require_approval',
       perms: { files: 'rwx', shell: 'rwx', git: 'rw', network: 'r', system: 'rwx', scheduler: 'rw', memory: 'rw' },
     },
   ];

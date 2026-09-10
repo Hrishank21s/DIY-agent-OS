@@ -79,7 +79,7 @@ export function automationRoutes(app: FastifyInstance): void {
     return { taskId, automation: automations.get(id) };
   });
 
-  app.delete('/api/v1/automations/:id', { preHandler: requireAuth }, async (req, reply) => {
+  app.delete('/api/v1/automations/:id', { preHandler: requireAuth }, async (req) => {
     automations.delete((req.params as { id: string }).id);
     return { ok: true };
   });

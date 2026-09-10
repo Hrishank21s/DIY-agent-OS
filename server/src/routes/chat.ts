@@ -37,7 +37,7 @@ export function chatRoutes(app: FastifyInstance): void {
 
   app.patch('/api/v1/chat/conversations/:id', { preHandler: requireAuth }, async (req, reply) => {
     const id = (req.params as { id: string }).id;
-    const conv = chat.getConversation(id);
+    const conv = chat.getOwnedConversation(id, req.user!.id);
     if (!conv) return reply.code(404).send({ error: 'Conversation not found' });
     const body = (req.body as { title?: string; archived?: boolean; projectId?: string }) || {};
     if (body.title !== undefined) chat.renameConversation(id, body.title.slice(0, 200));
@@ -51,20 +51,22 @@ export function chatRoutes(app: FastifyInstance): void {
 
   app.delete('/api/v1/chat/conversations/:id', { preHandler: requireAuth }, async (req, reply) => {
     const id = (req.params as { id: string }).id;
+    const conv = chat.getOwnedConversation(id, req.user!.id);
+    if (!conv) return reply.code(404).send({ error: 'Conversation not found' });
     chat.deleteConversation(id);
     return { ok: true };
   });
 
   app.get('/api/v1/chat/conversations/:id/messages', { preHandler: requireAuth }, async (req, reply) => {
     const id = (req.params as { id: string }).id;
-    const conv = chat.getConversation(id);
+    const conv = chat.getOwnedConversation(id, req.user!.id);
     if (!conv) return reply.code(404).send({ error: 'Conversation not found' });
     return { messages: chat.getMessages(id), conversation: conv };
   });
 
   app.post('/api/v1/chat/conversations/:id/messages', { preHandler: requireAuth }, async (req, reply) => {
     const id = (req.params as { id: string }).id;
-    const conv = chat.getConversation(id);
+    const conv = chat.getOwnedConversation(id, req.user!.id);
     if (!conv) return reply.code(404).send({ error: 'Conversation not found' });
     const parsed = sendSchema.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ error: 'Invalid request' });

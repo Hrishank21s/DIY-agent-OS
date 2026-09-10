@@ -24,17 +24,25 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   } finally {
     clearTimeout(timeout);
   }
-  if (res.status === 401) {
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('auth:unauthorized'));
-    }
-  }
   if (!res.ok) {
     let data: unknown = null;
     try {
       data = await res.json();
     } catch {
       /* ignore */
+    }
+    if (res.status === 401 && typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('auth:unauthorized'));
+    }
+    if (
+      res.status === 403 &&
+      data &&
+      typeof data === 'object' &&
+      (data as Record<string, unknown>).code === 'PASSWORD_CHANGE_REQUIRED'
+    ) {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('auth:password-change-required'));
+      }
     }
     const msg =
       data && typeof data === 'object' && 'error' in (data as Record<string, unknown>)

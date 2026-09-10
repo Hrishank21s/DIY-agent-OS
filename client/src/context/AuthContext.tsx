@@ -35,12 +35,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   }, []);
 
+  const handlePasswordChangeRequired = useCallback(() => {
+    navigate('/force-password-change', { replace: true });
+  }, [navigate]);
+
   useEffect(() => {
     window.addEventListener('auth:unauthorized', handleUnauthorized);
+    window.addEventListener('auth:password-change-required', handlePasswordChangeRequired);
     return () => {
       window.removeEventListener('auth:unauthorized', handleUnauthorized);
+      window.removeEventListener('auth:password-change-required', handlePasswordChangeRequired);
     };
-  }, [handleUnauthorized]);
+  }, [handleUnauthorized, handlePasswordChangeRequired]);
 
   useEffect(() => {
     api

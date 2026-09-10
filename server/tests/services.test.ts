@@ -29,15 +29,16 @@ describe('ApprovalService', () => {
     const svc = new ApprovalService();
     const a = svc.create({ type: 'command', description: 'danger', risk_level: 'high' });
     const responded = svc.respond(a.id, true, 'admin', 'ok');
-    expect(responded!.status).toBe('approved');
-    expect(responded!.responded_by).toBe('admin');
+    expect(responded!.changed).toBe(true);
+    expect(responded!.approval.status).toBe('approved');
+    expect(responded!.approval.responded_by).toBe('admin');
   });
 
   it('reject updates status', () => {
     const svc = new ApprovalService();
     const a = svc.create({ type: 'command', description: 'danger', risk_level: 'high' });
     const responded = svc.respond(a.id, false, 'admin');
-    expect(responded!.status).toBe('rejected');
+    expect(responded!.approval.status).toBe('rejected');
   });
 
   it('cannot double-respond', () => {
@@ -45,7 +46,34 @@ describe('ApprovalService', () => {
     const a = svc.create({ type: 'command', description: 'x', risk_level: 'high' });
     svc.respond(a.id, true, 'admin');
     const again = svc.respond(a.id, false, 'admin');
-    expect(again!.status).toBe('approved');
+    expect(again!.approval.status).toBe('approved');
+    expect(again!.changed).toBe(false);
+  });
+
+  it('lazy-expires approvals past their window', () => {
+    const svc = new ApprovalService();
+    const a = svc.create({ type: 'command', description: 'old', risk_level: 'high' });
+    const db = getDb();
+    db.db
+      .prepare('UPDATE approvals SET expires_at = ? WHERE id = ?')
+      .run(new Date(Date.now() - 1000).toISOString(), a.id);
+    const fetched = svc.get(a.id)!;
+    expect(fetched.status).toBe('rejected');
+    expect(fetched.reviewer_note).toContain('Expired');
+  });
+
+  it('expireStale reports the associated task ids once', () => {
+    const svc = new ApprovalService();
+    const tasks = new TaskService();
+    const t = tasks.create({ title: 'expiring' });
+    const stale = svc.create({ type: 'command', description: 'stale', risk_level: 'high', task_id: t.id });
+    const db = getDb();
+    db.db
+      .prepare('UPDATE approvals SET expires_at = ? WHERE id = ?')
+      .run(new Date(Date.now() - 1000).toISOString(), stale.id);
+    const taskIds = svc.expireStale();
+    expect(taskIds).toEqual([t.id]);
+    expect(svc.expireStale()).toEqual([]);
   });
 });
 

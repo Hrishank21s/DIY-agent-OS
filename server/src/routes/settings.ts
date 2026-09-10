@@ -36,7 +36,7 @@ const securitySchema = z.object({
 });
 
 export function settingsRoutes(app: FastifyInstance): void {
-  app.get('/api/v1/settings', { preHandler: requireAuth }, async (req, reply) => {
+  app.get('/api/v1/settings', { preHandler: requireAuth }, async (req) => {
     if (req.user!.id) {
       // Only admins (single user bootstrap) access all settings
     }

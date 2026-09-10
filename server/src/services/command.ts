@@ -2,10 +2,12 @@ import { spawn } from 'node:child_process';
 import { realpathSync } from 'node:fs';
 import { nanoid } from 'nanoid';
 import { getDb } from '../db/index.js';
-import { analyzeCommand, isWithinRoot } from './risk.js';
+import { analyzeCommand, isWithinRoot, type AllowedRule } from './risk.js';
 import { ApprovalService } from './approvals.js';
 import { TaskService } from './tasks.js';
+import { hub } from './realtime.js';
 import { Logger } from '../lib/logger.js';
+import { config } from '../config.js';
 
 const approvals = new ApprovalService();
 const tasks = new TaskService();
@@ -26,7 +28,7 @@ export interface ExecuteOptions {
   taskId?: string;
   agentId?: string;
   agentApprovalPolicy: string;
-  allowedPatterns?: string[];
+  allowedRules?: AllowedRule[];
   cwd?: string;
   timeoutMs?: number;
   onOutput?: (chunk: string, stream: 'stdout' | 'stderr') => void;
@@ -55,7 +57,7 @@ export class CommandExecutor {
     };
 
     // Risk assessment
-    const assessment = analyzeCommand(argv, opts.agentApprovalPolicy, opts.allowedPatterns || []);
+    const assessment = analyzeCommand(argv, opts.agentApprovalPolicy, opts.allowedRules || []);
 
     // Record the command
     await this.recordCommand(result, opts, assessment);
@@ -76,8 +78,9 @@ export class CommandExecutor {
       if (opts.onApprovalRequested) opts.onApprovalRequested(approval.id);
       log.info('command', `Command requires approval: ${argv.join(' ')} (${assessment.risk})`, { approvalId: approval.id });
 
-      // Wait for approval via polling (enriched by realtime events elsewhere)
-      const approved = await this.waitForApproval(id, approval.id, opts);
+      // Wait for approval. Event-driven: resolved as soon as an approval
+      // response arrives for this request, or when the approval window lapses.
+      const approved = await this.waitForApproval(approval.id);
       if (!approved) {
         result.exitCode = -1;
         result.stderr = 'Command rejected by approver';
@@ -95,36 +98,30 @@ export class CommandExecutor {
     return result;
   }
 
-  private async waitForApproval(
-    recordId: string,
-    approvalId: string,
-    opts: ExecuteOptions,
-    pollMs = 2000,
-    maxWaitMs = 24 * 60 * 60 * 1000,
-  ): Promise<boolean> {
-    const start = Date.now();
-    while (Date.now() - start < maxWaitMs) {
-      const a = approvals.get(approvalId);
-      if (a && a.status === 'approved') {
-        this.updateApprovalState(recordId, 'approved');
-        return true;
-      }
-      if (a && a.status === 'rejected') return false;
-      await new Promise(r => setTimeout(r, pollMs));
-    }
-    return false;
-  }
-
-  private updateApprovalState(_recordId: string, state: string): void {
-    // Carried over to task via the approval workflow in the worker
-    void state;
+  private waitForApproval(approvalId: string, maxWaitMs = config.approvalTimeoutMs): Promise<boolean> {
+    return new Promise(resolve => {
+      let settled = false;
+      const finish = (approved: boolean) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        unsubscribe();
+        resolve(approved);
+      };
+      const unsubscribe = hub.subscribe(evt => {
+        if (evt.type === 'approval:responded' && evt.approvalId === approvalId) {
+          finish(evt.status === 'approved');
+        }
+      });
+      const timer = setTimeout(() => finish(false), maxWaitMs);
+    });
   }
 
   private executeSpawn(
     argv: string[],
     result: CommandResult,
     opts: ExecuteOptions,
-    log: Logger,
+    _log: Logger,
   ): Promise<void> {
     return new Promise(resolve => {
       let child;

@@ -7,8 +7,7 @@ import websocket from '@fastify/websocket';
 import fastifyStatic from '@fastify/static';
 import path from 'node:path';
 import fs from 'node:fs';
-import { nanoid } from 'nanoid';
-import { config } from './config.js';
+import { config, isAllowedOrigin, isLoopbackHost } from './config.js';
 import { getDb, clearDbSingleton } from './db/index.js';
 import { seed } from './db/seed.js';
 import { initLogger, getLogger } from './lib/logger.js';
@@ -16,9 +15,7 @@ import { AuditService } from './services/audit.js';
 import { TaskService } from './services/tasks.js';
 import { AgentService } from './services/agents.js';
 import { SettingsService } from './services/settings.js';
-import { MemoryService } from './services/memory.js';
-import { ProjectService } from './services/projects.js';
-import { NoteService } from './services/notes.js';
+import { ApprovalService } from './services/approvals.js';
 import { AutomationService } from './services/automations.js';
 import { TaskQueue } from './workers/task-queue.js';
 import { Scheduler } from './scheduler/index.js';
@@ -50,7 +47,7 @@ export async function buildServer(opts?: { dataDir?: string }): Promise<ServerIn
   }
 
   const audit = new AuditService();
-  const logger = initLogger(e =>
+  initLogger(e =>
     audit.record(e.message, e.category as string, { level: e.level } as Record<string, unknown>),
   );
   const log = getLogger();
@@ -61,9 +58,7 @@ export async function buildServer(opts?: { dataDir?: string }): Promise<ServerIn
   const tasks = new TaskService();
   const agents = new AgentService();
   const settings = new SettingsService();
-  const memory = new MemoryService();
-  const projects = new ProjectService();
-  const notes = new NoteService();
+  const approvals = new ApprovalService();
   const automations = new AutomationService();
 
   const startedAt = new Date();
@@ -73,13 +68,13 @@ export async function buildServer(opts?: { dataDir?: string }): Promise<ServerIn
 
   const app = Fastify({
     logger: false,
-    trustProxy: true,
+    trustProxy: config.trustProxy,
     bodyLimit: 2 * 1024 * 1024,
   });
 
   await app.register(cookie);
   await app.register(helmet, {
-    contentSecurityPolicy: process.env.NODE_ENV === 'production',
+    contentSecurityPolicy: true,
   });
   await app.register(sensible);
   await app.register(websocket);
@@ -88,28 +83,24 @@ export async function buildServer(opts?: { dataDir?: string }): Promise<ServerIn
     max: 500,
     timeWindow: '1 minute',
   });
-  // Validate origin for CSRF protection on state-changing requests
+  // CSRF defense-in-depth on state-changing requests. The primary defense is the
+  // SameSite=Strict session cookie; this rejects cross-origin requests sent by
+  // browsers. The Origin header is only ever compared against the configured
+  // public/trusted origins plus loopback, never against the request Host.
   app.addHook('onRequest', async (req, reply) => {
-    const method = req.method;
-    if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
-      const origin = req.headers.origin;
-      if (origin) {
-        const allowed = new URL(origin);
-        const isLocalhost = allowed.hostname === 'localhost' || allowed.hostname === '127.0.0.1';
-        if (!isLocalhost) {
-          // Cross-origin state changes are rejected unless same-origin
-          const expected = `${req.protocol}://${req.headers.host}`;
-          const actual = `${allowed.protocol}//${allowed.host}`;
-          if (actual !== expected) {
-            return reply.code(403).send({ error: 'Cross-origin request rejected' });
-          }
-        }
-      }
+    if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) return;
+    const origin = req.headers.origin;
+    if (origin && !isAllowedOrigin(origin, config.trustedOrigins)) {
+      return reply.code(403).send({ error: 'Cross-origin request rejected' });
     }
   });
 
   // Recover stale tasks before starting the queue
   tasks.recoverStaleTasks();
+  // Fail tasks whose approval requests outlived their approval window
+  for (const taskId of approvals.expireStale()) {
+    tasks.updateStatus(taskId, 'failed', { error: 'Requires approval expired' });
+  }
 
   // Register routes
   authRoutes(app);
@@ -174,6 +165,20 @@ export async function startServer(): Promise<ServerInstance> {
 
   await app.listen({ port: config.port, host: config.host });
   getLogger().info('system', `AgentOS listening on ${config.host}:${config.port}`);
+
+  if (
+    config.runtimeMode === 'production' &&
+    !isLoopbackHost(config.host) &&
+    config.trustedOrigins.length === 0
+  ) {
+    getLogger().warn(
+      'system',
+      `Listening on a non-loopback address (${config.host}) with no AGENTOS_PUBLIC_ORIGIN / ` +
+        'AGENTOS_TRUSTED_ORIGINS configured. Browsers reaching this host will have their ' +
+        `state-changing requests rejected as cross-origin. Set AGENTOS_PUBLIC_ORIGIN=http://<hostname-or-ip>:${config.port} ` +
+        '(or add origins to AGENTOS_TRUSTED_ORIGINS) to allow LAN browser access.',
+    );
+  }
 
   const shutdown = async (signal: string) => {
     getLogger().info('system', `Received ${signal}, shutting down...`);

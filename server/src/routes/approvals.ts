@@ -1,15 +1,13 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { requireAuth, extractToken } from '../middleware/auth.js';
+import { requireAuth } from '../middleware/auth.js';
 import { ApprovalService } from '../services/approvals.js';
 import { TaskService } from '../services/tasks.js';
-import { AuthService } from '../services/auth.js';
-import { emitApprovalResponded, emitTaskStatus } from '../services/realtime.js';
+import { emitTaskStatus } from '../services/realtime.js';
 import { AuditService } from '../services/audit.js';
 
 const approvals = new ApprovalService();
 const tasks = new TaskService();
-const auth = new AuthService();
 const audit = new AuditService();
 
 const respondSchema = z.object({
@@ -38,12 +36,11 @@ export function approvalRoutes(app: FastifyInstance): void {
     const id = (req.params as { id: string }).id;
     const parsed = respondSchema.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ error: 'Invalid request' });
-    const a = approvals.respond(id, parsed.data.approve, req.user!.id, parsed.data.note);
-    if (!a) return reply.code(404).send({ error: 'Approval not found' });
+    const result = approvals.respond(id, parsed.data.approve, req.user!.id, parsed.data.note);
+    if (!result) return reply.code(404).send({ error: 'Approval not found' });
+    const a = result.approval;
 
-    emitApprovalResponded(id, a.status);
-
-    if (a.task_id) {
+    if (result.changed && a.task_id) {
       if (a.status === 'approved') {
         tasks.updateStatus(a.task_id, 'queued');
         emitTaskStatus(a.task_id, 'queued');

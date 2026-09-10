@@ -11,12 +11,15 @@ npm run dev
 ## Tests
 
 ```bash
-npm test              # runs: vitest run (server)
-npx vitest run -w server
+npm test              # runs vitest run in both server and client workspaces
+npm run test -w server
+npm run test -w client
 ```
 
-Current: **61 tests across 7 files pass** (`api.test.ts`, `auth.test.ts`, `command.test.ts`,
-`db.test.ts`, `opencode-executor.test.ts`, `risk.test.ts`, `services.test.ts`).
+Current: **89 server tests across 10 files pass** (`api.test.ts`, `auth.test.ts`, `command.test.ts`,
+`db.test.ts`, `ndjson-worker.test.ts`, `opencode-executor.test.ts`, `probe-config.test.ts`,
+`risk.test.ts`, `services.test.ts`, `worker-empty-result.test.ts`) and **9 client component tests
+across 3 files pass**.
 
 ### Test isolation
 
@@ -32,26 +35,17 @@ Vitest config (`server/vitest.config.ts`): `root: '.'`, `server.deps.external: [
 
 - `auth.test.ts`: "rejects short new passwords" runs before "changes password" because the DB
   persists for the whole file.
-- `command.test.ts` captures approval ids through the provided `onApprovalRequested` callback.
+- `command.test.ts` captures approval ids through the provided `onApprovalRequested` callback; the
+  executor resumes event-driven on `approval:responded` from the realtime hub.
 - Tests that create queued rows accumulate state; when a claim test needs a specific task, pass the
   pre-existing queued ids into the exclusion set too.
 
-## End-to-end acceptance
+## Acceptance testing
 
-```bash
-bash /tmp/agentos-e2e.sh
-```
-
-A self-contained HTTP-level script (boots the built server on :3101 with its own data dir). It
-covers: health + client SPA serving, bootstrap login + forced password change + old-password
-rejection, CRUD (projects, notes, memory, agents, automations), chat memory classification, a full
-task completion with logs, the approval API surface (list, pending count, approve with reviewer,
-reject with note, audit trail), running-task cancellation, restart recovery (stale `running` →
-`failed`, stale `waiting_for_approval` → `paused`), and launchd state. On success it prints
-`E2E: ALL PASS`.
-
-A few commands in it write to the DB directly via `node:sqlite` where there is no HTTP endpoint by
-design (approval creation is owned by the command executor).
+There is no checked-in end-to-end script. The HTTP surface (auth incl. bootstrap + forced password
+change, CRUD, chat, tasks, approvals, cancellation, restart recovery) is covered by
+`server/tests/api.test.ts` plus the service-level suites. To smoke-test manually: `npm run build`,
+then `npm run start` with a scratch `AGENTOS_DATA_DIR` and drive the UI at http://localhost:3000.
 
 ## Rebuilding
 
@@ -68,8 +62,9 @@ npm run lint          # eslint on both workspaces
 - **Do not break the double-execution guard.** The queue claims with
   `claimAvailable([...this.running])`. If you add more ways to requeue in-flight tasks, extend the
   exclusion set rather than removing it.
-- **Approval enum values are strict**: `safe | low | medium | high | always_approve`. The old
-  `approve` value is invalid; seeds and defaults use `always_approve`.
+- **Approval enum values are strict**: `safe | low | medium | high | always_require_approval`. The
+  legacy `always_approve` spelling is accepted and normalized; the old `approve` value is invalid.
+  Seeds and defaults use `always_require_approval`.
 - **Node 26 native modules do not compile** on this machine. Use `node:sqlite` and `crypto`
   primitives only; every SQLite row must be cast (`as unknown as T`) because `DatabaseSync`
   returns plain objects.

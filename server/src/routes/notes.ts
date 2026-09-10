@@ -65,7 +65,7 @@ export function noteRoutes(app: FastifyInstance): void {
     return { note: n };
   });
 
-  app.delete('/api/v1/notes/:id', { preHandler: requireAuth }, async (req, reply) => {
+  app.delete('/api/v1/notes/:id', { preHandler: requireAuth }, async (req) => {
     notes.delete((req.params as { id: string }).id);
     return { ok: true };
   });

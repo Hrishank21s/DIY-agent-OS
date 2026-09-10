@@ -1,5 +1,6 @@
 import { nanoid } from 'nanoid';
 import { getDb } from '../db/index.js';
+import { normalizeApprovalPolicy } from './risk.js';
 
 export interface Permission {
   resource: string;
@@ -77,7 +78,7 @@ export class AgentService {
         input.system_prompt || null,
         input.model || null,
         input.enabled === undefined ? 1 : input.enabled,
-        input.approval_policy || 'always_approve',
+        input.approval_policy ? normalizeApprovalPolicy(input.approval_policy) : 'always_require_approval',
         input.timeout_seconds || null,
         input.max_concurrent_tasks || 1,
       );
@@ -99,6 +100,9 @@ export class AgentService {
       'timeout_seconds',
       'max_concurrent_tasks',
     ] as const;
+    if (input.approval_policy !== undefined) {
+      input = { ...input, approval_policy: normalizeApprovalPolicy(input.approval_policy) };
+    }
     const sets: string[] = [];
     const params: (string | number | null)[] = [];
     for (const f of fields) {

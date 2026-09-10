@@ -25,11 +25,11 @@ a scheduler, and a React dashboard served from the same server. Storage is SQLit
 | --- | --- |
 | `config.ts` | Env + JSON config (`AGENTOS_HOST`/`PORT`/`DATA_DIR`) |
 | `db/index.ts`, `db/migrate.ts`, `db/seed.ts` | SQLite bootstrap, migrations, seed agents |
-| `middleware/auth.ts` | Bearer/session auth on API routes |
+| `middleware/auth.ts` | Session (cookie) auth on API routes |
 | `services/auth.ts` | scrypt password hashing, password-change enforcement, rate limiting |
 | `services/tasks.ts` | Task CRUD, priority claim (`claimAvailable`), logs, crash recovery |
-| `services/risk.ts` | Command risk classification + always-approve set |
-| `services/command.ts` | `CommandExecutor` — argv-spawn (no shell), approval gate |
+| `services/risk.ts` | Command risk classification + mandatory-approval set + allow-rules |
+| `services/command.ts` | `CommandExecutor` — argv-spawn (no shell), approval gate, allow-rules. Reusable executor for integration-driven command runs; the default task path runs the OpenCode CLI directly (see below) |
 | `services/approvals.ts` | Approval lifecycle (pending/approved/rejected) |
 | `services/agents.ts` | Agent registry + permission checks |
 | `services/memory.ts` | Memory storage + FTS5 retrieval + type extraction |
@@ -47,7 +47,9 @@ a scheduler, and a React dashboard served from the same server. Storage is SQLit
 and `running → waiting_for_approval → (approve) queued → …` or `(reject) failed`.
 
 `waiting_for_approval` tasks left behind by a restart are recovered to `paused`; a later approval
-requeues them. Stale `running` tasks are recovered to `failed` with a message.
+requeues them. Stale `running` tasks are recovered to `failed` with a message. (In the default
+architecture a task never pauses mid-run at `waiting_for_approval` on its own — see “In-task
+commands (OpenCode boundary)” below.)
 
 ### Double-execution protection
 
@@ -59,19 +61,25 @@ task back to `running`.
 
 ## Approval model
 
-`CommandExecutor.execute(argv, { agentApprovalPolicy, taskId, ... })`:
+`CommandExecutor.execute(argv, { agentApprovalPolicy, allowedRules, taskId, ... })`:
 
-1. `analyzeCommand` classifies risk (`safe`…`high`) using the command name, argv flags, and the
-   agent policy. A hard-coded `ALWAYS_APPROVE_COMMANDS` set (`sudo`, `rm`, `mount`, `diskutil`,
-   `kill`, …) forces approval regardless of policy.
-2. Requires approval → inserts an `approvals` row, marks the task `waiting_for_approval`, emits a
-   realtime event.
-3. The executing side polls for the outcome, resumes (`running`) on approval, or records rejection.
-4. `POST /api/v1/approvals/:id/respond` records reviewer + note, updates the task, and appends an
-   audit entry (`approval.approved` / `approval.rejected`).
+1. `analyzeCommand` classifies risk (`safe`…`high`) from the command name and argv. A hard-coded
+   `MUST_APPROVE_COMMANDS` set (`sudo`, `rm`, `mount`, `diskutil`, `kill`, …) forces approval
+   regardless of policy and cannot be bypassed by allow-rules.
+2. Requires approval → inserts an `approvals` row (with an expiry window), marks the task
+   `waiting_for_approval`, and emits a realtime event.
+3. The executing side waits on the realtime hub for `approval:responded` and resumes only on
+   approval, or gives up when the approval window expires.
+4. `POST /api/v1/approvals/:id/respond` records reviewer + note, requeues (approved) or fails
+   (rejected) the task, and appends an audit entry (`approval.approved` / `approval.rejected`).
+   Expired approvals are rejected lazily and by the boot-time sweep.
 
 Commands are executed with `spawn(argv[0], argv.slice(1), { shell: false })` — no shell string
 interpretation — with a hard timeout and `AGENTOS_TASK_ID` set in the environment.
+
+This executor is the platform-controlled command boundary. The default task worker does not use it:
+tasks run the OpenCode CLI directly (below). Approval-driven task UI/API flows are exercised at the
+service and route level by the test suite.
 
 ## In-task commands (OpenCode boundary)
 

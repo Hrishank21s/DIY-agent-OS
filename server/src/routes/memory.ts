@@ -71,7 +71,7 @@ export function memoryRoutes(app: FastifyInstance): void {
     return { memory: m };
   });
 
-  app.delete('/api/v1/memory/:id', { preHandler: requireAuth }, async (req, reply) => {
+  app.delete('/api/v1/memory/:id', { preHandler: requireAuth }, async (req) => {
     memory.delete((req.params as { id: string }).id);
     return { ok: true };
   });

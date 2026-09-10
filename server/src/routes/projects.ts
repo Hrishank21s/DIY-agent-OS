@@ -45,7 +45,7 @@ export function projectRoutes(app: FastifyInstance): void {
     return { project: p };
   });
 
-  app.delete('/api/v1/projects/:id', { preHandler: requireAuth }, async (req, reply) => {
+  app.delete('/api/v1/projects/:id', { preHandler: requireAuth }, async (req) => {
     projects.delete((req.params as { id: string }).id);
     return { ok: true };
   });

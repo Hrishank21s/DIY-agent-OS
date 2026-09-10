@@ -23,6 +23,7 @@
     "node": ">=20"
   },
   "devDependencies": {
-    "concurrently": "^10.0.5"
+    "concurrently": "^10.0.5",
+    "vite": "^6.4.3"
   }
 }

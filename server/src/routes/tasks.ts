@@ -4,12 +4,9 @@ import { requireAuth } from '../middleware/auth.js';
 import { TaskService } from '../services/tasks.js';
 import { TaskQueue } from '../workers/task-queue.js';
 import { AgentService } from '../services/agents.js';
-import { SettingsService } from '../services/settings.js';
-import { emitTaskStatus } from '../services/realtime.js';
 
 const tasks = new TaskService();
 const agents = new AgentService();
-const settings = new SettingsService();
 
 const createSchema = z.object({
   title: z.string().min(1).max(500),
@@ -90,7 +87,7 @@ export function taskRoutes(app: FastifyInstance, getQueue: () => TaskQueue): voi
     return { task: tasks.get(id) };
   });
 
-  app.delete('/api/v1/tasks/:id', { preHandler: requireAuth }, async (req, reply) => {
+  app.delete('/api/v1/tasks/:id', { preHandler: requireAuth }, async (req) => {
     const id = (req.params as { id: string }).id;
     const queue = getQueue();
     queue.cancel(id);
@@ -99,13 +96,13 @@ export function taskRoutes(app: FastifyInstance, getQueue: () => TaskQueue): voi
     return { ok: true };
   });
 
-  app.post('/api/v1/tasks/:id/cancel', { preHandler: requireAuth }, async (req, reply) => {
+  app.post('/api/v1/tasks/:id/cancel', { preHandler: requireAuth }, async (req) => {
     const id = (req.params as { id: string }).id;
     getQueue().cancel(id);
     return { task: tasks.get(id) };
   });
 
-  app.post('/api/v1/tasks/:id/retry', { preHandler: requireAuth }, async (req, reply) => {
+  app.post('/api/v1/tasks/:id/retry', { preHandler: requireAuth }, async (req) => {
     const id = (req.params as { id: string }).id;
     getQueue().retry(id);
     return { task: tasks.get(id) };

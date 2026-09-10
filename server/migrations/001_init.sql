@@ -47,6 +47,16 @@ CREATE TABLE IF NOT EXISTS messages (
 CREATE INDEX IF NOT EXISTS idx_msg_conv ON messages(conversation_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_msg_task ON messages(task_id);
 
+CREATE TABLE IF NOT EXISTS projects (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE,
+  description TEXT,
+  root_dir TEXT,
+  instructions TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS tasks (
   id TEXT PRIMARY KEY,
   title TEXT NOT NULL,
@@ -88,7 +98,7 @@ CREATE TABLE IF NOT EXISTS agents (
   system_prompt TEXT,
   model TEXT,
   enabled INTEGER NOT NULL DEFAULT 1,
-  approval_policy TEXT NOT NULL DEFAULT 'approve',
+  approval_policy TEXT NOT NULL DEFAULT 'always_require_approval',
   timeout_seconds INTEGER,
   max_concurrent_tasks INTEGER DEFAULT 1,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -141,16 +151,6 @@ CREATE TABLE IF NOT EXISTS notes (
 );
 CREATE INDEX IF NOT EXISTS idx_notes_project ON notes(project_id);
 CREATE INDEX IF NOT EXISTS idx_notes_pinned ON notes(pinned, archived);
-
-CREATE TABLE IF NOT EXISTS projects (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL UNIQUE,
-  description TEXT,
-  root_dir TEXT,
-  instructions TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
 
 CREATE TABLE IF NOT EXISTS automations (
   id TEXT PRIMARY KEY,

@@ -33,10 +33,37 @@ describe('Risk classification', () => {
     expect(a.requiresApproval).toBe(false);
   });
 
-  it('whitelisted patterns allow execution', () => {
-    // If a safe allowlist explicitly contains the command, allow it
-    const a = analyzeCommand(['ls', '/tmp'], 'safe', ['ls /tmp']);
+  it('whitelisted rules allow execution', () => {
+    const a = analyzeCommand(['ls', '/tmp'], 'safe', [{ executable: 'ls', args: ['/tmp'] }]);
     expect(a.requiresApproval).toBe(false);
+  });
+
+  it('whitelist matches by executable basename', () => {
+    const a = analyzeCommand(['/bin/ls', '/tmp'], 'safe', [{ executable: 'ls', args: ['/tmp'] }]);
+    expect(a.requiresApproval).toBe(false);
+  });
+
+  it('whitelist uses exact argv matching, not prefix matching', () => {
+    // node is medium risk; under a 'safe' policy it is only allowed when an
+    // exact rule matches.
+    const rule = [{ executable: 'node', args: ['script.js'] }];
+    expect(analyzeCommand(['node', 'script.js'], 'safe', rule).requiresApproval).toBe(false);
+    expect(analyzeCommand(['node', 'script.jsX'], 'safe', rule).requiresApproval).toBe(true);
+    expect(analyzeCommand(['node', 'script.js', '-x'], 'safe', rule).requiresApproval).toBe(true);
+  });
+
+  it('allow-list rules cannot bypass mandatory approval', () => {
+    const rule = [{ executable: 'rm', args: ['-rf', '/important'] }];
+    const a = analyzeCommand(['rm', '-rf', '/important'], 'high', rule);
+    expect(a.requiresApproval).toBe(true);
+  });
+
+  it('rule with no args allows any invocation of that executable', () => {
+    const a = analyzeCommand(['ls', '-la', '/tmp'], 'safe', [{ executable: 'ls' }]);
+    expect(a.requiresApproval).toBe(false);
+    // but other executables are still gated
+    const b = analyzeCommand(['whoami'], 'safe', [{ executable: 'ls' }]);
+    expect(b.requiresApproval).toBe(true);
   });
 
   it('approval policy gating works', () => {
@@ -44,8 +71,12 @@ describe('Risk classification', () => {
     expect(shouldRequireApproval('medium', 'safe')).toBe(true);
     // medium command with 'medium' policy -> allowed
     expect(shouldRequireApproval('medium', 'medium')).toBe(false);
-    // always_approve -> everything requires approval
+    // always_require_approval -> everything requires approval
+    expect(shouldRequireApproval('safe', 'always_require_approval')).toBe(true);
+    // legacy 'always_approve' spelling behaves identically
     expect(shouldRequireApproval('safe', 'always_approve')).toBe(true);
+    // unknown policies fail closed
+    expect(shouldRequireApproval('safe', 'bogus')).toBe(true);
   });
 
   it('mkfs/disk operations are high risk', () => {

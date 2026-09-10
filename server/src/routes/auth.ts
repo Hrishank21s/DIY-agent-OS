@@ -1,13 +1,11 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AuthService } from '../services/auth.js';
-import { requireAuth } from '../middleware/auth.js';
-import { AuditService } from '../services/audit.js';
-import { getLogger } from '../lib/logger.js';
+import { requireAuth, extractToken } from '../middleware/auth.js';
+import { hashToken } from '../lib/password.js';
+import { config } from '../config.js';
 
-const log = getLogger();
 const auth = new AuthService();
-const audit = new AuditService();
 
 const loginSchema = z.object({
   username: z.string().min(1).max(64),
@@ -36,7 +34,7 @@ export function authRoutes(app: FastifyInstance): void {
       path: '/',
       httpOnly: true,
       sameSite: 'strict',
-      secure: process.env.NODE_ENV === 'production',
+      secure: config.cookieSecure,
       maxAge: durationMin * 60,
     });
     return { user: result.user, requiresPasswordChange: result.user.mustChangePassword };
@@ -59,11 +57,16 @@ export function authRoutes(app: FastifyInstance): void {
       return reply.code(400).send({ error: 'Invalid request' });
     }
     const user = req.user!;
-    const r = auth.changePassword(user.id, parsed.data.currentPassword, parsed.data.newPassword);
+    const token = extractToken(req);
+    const r = auth.changePassword(
+      user.id,
+      parsed.data.currentPassword,
+      parsed.data.newPassword,
+      token ? hashToken(token) : undefined,
+    );
     if (!r.ok) {
       return reply.code(400).send({ error: r.error });
     }
-    // Revoke other sessions for security, keep this one
     return { ok: true };
   });
 
@@ -71,7 +74,7 @@ export function authRoutes(app: FastifyInstance): void {
     return { sessions: auth.listSessions(req.user!.id) };
   });
 
-  app.post('/api/v1/auth/sessions/:id/revoke', { preHandler: requireAuth }, async (req, reply) => {
+  app.post('/api/v1/auth/sessions/:id/revoke', { preHandler: requireAuth }, async (req) => {
     const id = (req.params as { id: string }).id;
     auth.revokeSession(id, req.user!.id);
     return { ok: true };

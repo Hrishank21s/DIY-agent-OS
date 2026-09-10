@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { getDb } from '../src/db/index.js';
-import { seed } from '../src/db/seed.js';
+import { seed, isValidBootstrapPassword, resetBootstrapUser } from '../src/db/seed.js';
 import { AuthService } from '../src/services/auth.js';
+import { hashToken } from '../src/lib/password.js';
 
 describe('AuthService', () => {
   it('logs in with bootstrap credentials', () => {
@@ -67,5 +68,37 @@ describe('AuthService', () => {
     // old password no longer valid
     expect(auth.login('admin', 'admin123')).toBeNull();
     expect(auth.login('admin', 'newpass123')).not.toBeNull();
+  });
+
+  it('password change revokes other sessions but keeps the current one', () => {
+    const db = getDb();
+    seed(db);
+    resetBootstrapUser(db);
+    const auth = new AuthService();
+    const a = auth.login('admin', 'admin123')!;
+    const b = auth.login('admin', 'admin123')!;
+    expect(auth.validate(a.token)).not.toBeNull();
+    expect(auth.validate(b.token)).not.toBeNull();
+    const res = auth.changePassword(a.user.id, 'admin123', 'newpass123', hashToken(a.token));
+    expect(res.ok).toBe(true);
+    expect(auth.validate(a.token)).not.toBeNull();
+    expect(auth.validate(b.token)).toBeNull();
+  });
+
+  it('classifies weak bootstrap passwords', () => {
+    expect(isValidBootstrapPassword('admin123')).toBe(false);
+    expect(isValidBootstrapPassword('short')).toBe(false);
+    expect(isValidBootstrapPassword('')).toBe(false);
+    expect(isValidBootstrapPassword('correct-horse-battery-staple')).toBe(true);
+  });
+
+  it('resetBootstrapUser restores the bootstrap credentials', () => {
+    const db = getDb();
+    seed(db);
+    const auth = new AuthService();
+    db.db.prepare("UPDATE users SET password_hash = 'x' WHERE username = 'admin'").run();
+    expect(auth.login('admin', 'admin123')).toBeNull();
+    resetBootstrapUser(db);
+    expect(auth.login('admin', 'admin123')).not.toBeNull();
   });
 });

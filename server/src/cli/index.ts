@@ -4,17 +4,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { getDb } from '../db/index.js';
-import { seed } from '../db/seed.js';
-import { AuthService } from '../services/auth.js';
-import { hashPassword } from '../lib/password.js';
+import { resetBootstrapUser } from '../db/seed.js';
 
 const PID_FILE = path.join(config.dataDir, 'agentos.pid');
 const LOG_FILE = path.join(config.dataDir, 'agentos.log');
-
-function pidFileRun(): string {
-  const startIndex = process.argv.indexOf('start');
-  return process.argv.slice(0, startIndex + 1).join(' ');
-}
 
 export async function cliStart(): Promise<void> {
   return new Promise(resolve => {
@@ -143,7 +136,7 @@ export function cliDoctor(): Promise<number> {
   let netOut = '';
   net.stdout?.on('data', d => (netOut += d.toString()));
   return new Promise<number>(res => {
-    net.on('close', code => {
+    net.on('close', _code => {
       if (netOut.includes('BIND_OK')) {
         console.log(`✓ Network: 0.0.0.0:${config.port} bindable`);
       } else {
@@ -189,22 +182,8 @@ export function cliMigrate(): void {
 
 export function cliResetAdmin(): void {
   const d = getDb();
-  seed(d);
-  const auth = new AuthService();
-  // find the admin user
-  const admin = d.db.prepare("SELECT id FROM users WHERE username = 'admin'").get() as { id: string } | undefined;
-  if (admin) {
-    const nh = hashPassword('admin123');
-    d.db
-      .prepare("UPDATE users SET password_hash = ?, must_change_password = 1, updated_at = datetime('now') WHERE id = ?")
-      .run(nh, admin.id);
-    console.log('Admin password reset to bootstrap credentials (admin/admin123). Change it after login.');
-  } else {
-    // No admin user; reseed will create one
-    console.log('No admin user found. Seeding default admin...');
-    seed(d);
-    console.log('Admin user created. Login with admin/admin123.');
-  }
+  resetBootstrapUser(d);
+  console.log('Admin password reset to the configured bootstrap credentials. A password change will be required on next login.');
   d.close();
 }
 

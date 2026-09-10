@@ -25,7 +25,7 @@ const TABS: { value: SettingsTab; label: string }[] = [
 
 export default function Settings() {
   const [tab, setTab] = useState<SettingsTab>('general');
-  const [data, setData] = useState<SettingsData | null>(null);
+  const [, setData] = useState<SettingsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);

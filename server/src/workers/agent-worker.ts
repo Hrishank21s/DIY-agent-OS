@@ -5,7 +5,7 @@ import { SettingsService } from '../services/settings.js';
 import { MemoryService } from '../services/memory.js';
 import { ProjectService } from '../services/projects.js';
 import { NoteService } from '../services/notes.js';
-import { createExecutor, type OpenCodeExecutor, type ExecutorController } from '../executors/opencode.js';
+import { type OpenCodeExecutor, type ExecutorController } from '../executors/opencode.js';
 import { ChatService } from '../services/chat.js';
 import { hub, emitTaskStatus, emitTaskOutput, emitSystemStatus } from '../services/realtime.js';
 

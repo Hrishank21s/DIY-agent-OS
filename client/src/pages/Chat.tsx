@@ -11,7 +11,6 @@ import {
   Button,
   ConfirmDialog,
   EmptyState,
-  IconButton,
   InlineError,
   LoadingBlock,
   Modal,
@@ -46,7 +45,7 @@ export default function Chat() {
   const [messagesError, setMessagesError] = useState('');
   const [sendError, setSendError] = useState('');
   const [loadingConversations, setLoadingConversations] = useState(true);
-  const [loadingMessages, setLoadingMessages] = useState(false);
+  const [, setLoadingMessages] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [showNewModal, setShowNewModal] = useState(false);
   const [renameTarget, setRenameTarget] = useState<Conversation | null>(null);

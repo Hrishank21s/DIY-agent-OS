@@ -1,9 +1,22 @@
+import { basename } from 'node:path';
+import { realpathSync } from 'node:fs';
+
 export type RiskLevel = 'safe' | 'low' | 'medium' | 'high';
 
 export interface RiskAssessment {
   risk: RiskLevel;
   requiresApproval: boolean;
   reason?: string;
+}
+
+/**
+ * Structured allow-list rule. `args`, when provided, must match the exact
+ * argv (after the executable) for the rule to apply. When omitted, every
+ * invocation of the executable is allowed.
+ */
+export interface AllowedRule {
+  executable: string;
+  args?: string[];
 }
 
 const HIGH_RISK_COMMANDS = new Set([
@@ -94,10 +107,10 @@ const MEDIUM_RISK_COMMANDS = new Set([
 ]);
 
 /**
- * Commands that must NEVER execute silently, regardless of the agent's
- * approval policy.
+ * Commands that must NEVER run without explicit human approval, regardless of
+ * the agent's approval policy or any allow-list rule.
  */
-const ALWAYS_APPROVE_COMMANDS = new Set([
+const MUST_APPROVE_COMMANDS = new Set([
   'sudo',
   'rm',
   'launchctl',
@@ -129,30 +142,47 @@ const ALWAYS_APPROVE_COMMANDS = new Set([
 ]);
 
 export interface AnalyzeOptions {
-  /** One or more patterns that have been explicitly allowed by the agent so far (whitelist). */
-  allowedPatterns?: string[];
+  /** One or more { executable, args } rules explicitly allowed for this run. */
+  allowedRules?: AllowedRule[];
+}
+
+function resolveRealPath(p: string): string {
+  try {
+    return realpathSync(p);
+  } catch {
+    return p;
+  }
+}
+
+function executableMatches(argv0: string, ruleExec: string): boolean {
+  if (argv0 === ruleExec) return true;
+  return basename(argv0) === basename(ruleExec) || resolveRealPath(argv0) === resolveRealPath(ruleExec);
+}
+
+function matchesRule(argv: string[], rule: AllowedRule): boolean {
+  const exec = argv[0] || '';
+  const args = argv.slice(1);
+  if (!executableMatches(exec, rule.executable)) return false;
+  if (!rule.args) return true;
+  if (rule.args.length !== args.length) return false;
+  return rule.args.every((a, i) => a === args[i]);
 }
 
 /**
  * Analyze a command (already tokenized) and determine its risk level and
  * whether it requires human approval given the agent's approval policy.
  *
- * Catastrophic commands (sudo, rm -rf, disk utilities, launchctl, ...) ALWAYS
- * require approval and cannot be bypassed by raising the approval policy.
+ * Catastrophic commands (sudo, rm, disk utilities, launchctl, ...) ALWAYS
+ * require approval, cannot be bypassed by raising the approval policy, and
+ * cannot be allowed by an allow-list rule.
  */
-export function analyzeCommand(argv: string[], approvalPolicy: string, allowedPatterns: string[] = []): RiskAssessment {
-  const full = argv.join(' ');
-
-  // Respect an explicit whitelist of pre-approved exact commands
-  if (allowedPatterns.some(p => p && (full === p || full.startsWith(p)))) {
-    return { risk: 'safe', requiresApproval: false };
-  }
-
+export function analyzeCommand(argv: string[], approvalPolicy: string, allowedRules: AllowedRule[] = []): RiskAssessment {
+  const policy = normalizeApprovalPolicy(approvalPolicy);
   const base = classifyCommand(argv);
 
   // Hard rule: catastrophic commands always require approval
   const baseCmd = (argv[0] || '').toLowerCase();
-  if (ALWAYS_APPROVE_COMMANDS.has(baseCmd)) {
+  if (MUST_APPROVE_COMMANDS.has(baseCmd)) {
     return {
       risk: base,
       requiresApproval: true,
@@ -160,7 +190,14 @@ export function analyzeCommand(argv: string[], approvalPolicy: string, allowedPa
     };
   }
 
-  return applyPolicy(base, approvalPolicy);
+  // Structured allow-list: exact-match rules only, no prefix matching.
+  for (const rule of allowedRules) {
+    if (matchesRule(argv, rule)) {
+      return { risk: 'safe', requiresApproval: false };
+    }
+  }
+
+  return applyPolicy(base, policy);
 }
 
 function classifyCommand(argv: string[]): RiskLevel {
@@ -229,11 +266,19 @@ export function shouldRequireApproval(risk: RiskLevel, policy: string): boolean 
     low: order.low,
     medium: order.medium,
     high: order.high,
-    always_approve: -1,
+    always_require_approval: -1,
+    always_approve: -1, // legacy alias
   };
   const threshold = allowedRank[policy];
   if (threshold === undefined) return true;
   return riskRank > threshold;
+}
+
+/** Canonical spelling for the "always require approval" policy. */
+export function normalizeApprovalPolicy(policy: string | undefined | null): string {
+  if (!policy) return 'always_require_approval';
+  if (policy === 'always_approve') return 'always_require_approval';
+  return policy;
 }
 
 /**

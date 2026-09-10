@@ -2,10 +2,8 @@ import { nanoid } from 'nanoid';
 import { getDb } from '../db/index.js';
 import { hashPassword, verifyPassword, hashToken, generateToken } from '../lib/password.js';
 import { AuditService } from './audit.js';
-import { getLogger } from '../lib/logger.js';
 
 const audit = new AuditService();
-const log = getLogger();
 
 export interface AuthedUser {
   id: string;
@@ -84,7 +82,7 @@ export class AuthService {
     db.db.prepare('UPDATE sessions SET revoked = 1 WHERE token_hash = ?').run(hashToken(token));
   }
 
-  changePassword(userId: string, currentPassword: string, newPassword: string): { ok: boolean; error?: string } {
+  changePassword(userId: string, currentPassword: string, newPassword: string, keepTokenHash?: string): { ok: boolean; error?: string } {
     const db = getDb();
     const row = db.db
       .prepare('SELECT * FROM users WHERE id = ?')
@@ -100,6 +98,13 @@ export class AuthService {
     db.db
       .prepare('UPDATE users SET password_hash = ?, must_change_password = 0, updated_at = datetime(\'now\') WHERE id = ?')
       .run(nh, userId);
+    if (keepTokenHash) {
+      db.db
+        .prepare('UPDATE sessions SET revoked = 1 WHERE user_id = ? AND token_hash != ? AND revoked = 0')
+        .run(userId, keepTokenHash);
+    } else {
+      db.db.prepare('UPDATE sessions SET revoked = 1 WHERE user_id = ?').run(userId);
+    }
     audit.record('auth.password_changed', 'auth', {}, userId);
     return { ok: true };
   }
@@ -113,6 +118,7 @@ export class AuthService {
     db.db
       .prepare('UPDATE users SET password_hash = ?, must_change_password = 0, updated_at = datetime(\'now\') WHERE id = ?')
       .run(nh, userId);
+    db.db.prepare('UPDATE sessions SET revoked = 1 WHERE user_id = ?').run(userId);
     audit.record('auth.admin_password_reset', 'auth', {}, userId);
     return { ok: true };
   }

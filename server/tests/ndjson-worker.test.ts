@@ -8,7 +8,7 @@ let fixtureDir: string;
 
 function makeFixtureScript(ndjsonLines: string[]): void {
   fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agentos-ndjson-fixture-'));
-  fixtureScript = path.join(fixtureDir, 'fake-opencode');
+  fixtureScript = path.join(fixtureDir, 'opencode');
 
   const payloadFile = path.join(fixtureDir, 'payload.ndjson');
   fs.writeFileSync(payloadFile, ndjsonLines.join('\n') + '\n');

@@ -1,11 +1,9 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import readline from 'node:readline';
-import fs from 'node:fs';
-import { EventEmitter } from 'node:events';
 import { SettingsService } from '../services/settings.js';
 import { AgentService } from '../services/agents.js';
 import { Logger } from '../lib/logger.js';
-import { config } from '../config.js';
+import { config, isAllowedOpenCodePath } from '../config.js';
 
 export interface OpenCodeEvent {
   type: string;
@@ -72,19 +70,21 @@ export class OpenCodeCliExecutor implements OpenCodeExecutor {
 
   private resolveExecutable(): string {
     const fromEnv = process.env.AGENTOS_OPENCODE_PATH?.trim();
+    let candidate: string | null = null;
     if (fromEnv) {
       // Runtime override; matches detectOpenCode() priority so config module
       // caching in tests cannot pin the executor to the installed binary.
-      return fromEnv;
+      candidate = fromEnv;
+    } else {
+      const fromSettings = this.settings.opencodePath?.trim();
+      if (fromSettings) candidate = fromSettings;
     }
-    const fromSettings = this.settings.opencodePath?.trim();
-    if (fromSettings && fs.existsSync(fromSettings) && fs.accessSync) {
-      try {
-        fs.accessSync(fromSettings, fs.constants.X_OK);
-        return fromSettings;
-      } catch {}
-    }
-    return config.opencodePath;
+    const resolved = candidate && isAllowedOpenCodePath(candidate) ? candidate : config.opencodePath;
+    if (isAllowedOpenCodePath(resolved)) return resolved;
+    this.log.warn('system', "OpenCode path is not an allowed executable; falling back to 'opencode' on PATH", {
+      path: resolved,
+    });
+    return 'opencode';
   }
 
   async isAvailable(): Promise<{ available: boolean; version?: string; error?: string }> {

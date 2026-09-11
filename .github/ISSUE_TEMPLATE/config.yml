@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/Hrishank21s/DIY-agent-OS/security/advisories/new
+    about: Do not open a public issue for security bugs. Use a Security Advisory instead.
+  - name: Documentation
+    url: https://github.com/Hrishank21s/DIY-agent-OS/tree/main/docs
+    about: Check the docs for architecture, deployment, security, and development guides.

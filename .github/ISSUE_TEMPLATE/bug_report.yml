@@ -1,0 +1,59 @@
+name: Bug report
+description: Report something that isn't working as expected
+labels: [bug]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe the bug. What did you expect vs. what actually happened?
+    validations:
+      required: true
+  - type: textarea
+    id: repro-steps
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps to make this happen.
+      placeholder: |
+        1. npm run build
+        2. npm run start
+        3. Open http://localhost:3000
+        4. ...
+    validations:
+      required: true
+  - type: input
+    id: node-version
+    attributes:
+      label: Node version
+      description: Run `node -v`
+      placeholder: "v26.1.0"
+    validations:
+      required: true
+  - type: input
+    id: macos-version
+    attributes:
+      label: macOS version
+      description: e.g. Sequoia 15.5, Sonoma 14.4
+    validations:
+      required: true
+  - type: input
+    id: chip
+    attributes:
+      label: Chip
+      options:
+        - Apple Silicon (M1/M2/M3/M4)
+        - Intel
+      validations:
+        required: true
+  - type: textarea
+    id: doctor-output
+    attributes:
+      label: "npm run doctor output (if available)"
+      description: This helps diagnose environment issues.
+      render: text
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log output
+      description: Console or server logs around the time of the failure.
+      render: text

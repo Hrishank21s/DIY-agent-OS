@@ -1,0 +1,28 @@
+name: Feature request
+description: Suggest something new for AgentOS
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: A clear description of the problem or limitation you're hitting.
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: What would you like to see?
+      description: Describe the solution or behavior you'd want.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Any other approaches or workarounds you've tried.
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Anything else relevant — screenshots, links, related issues.

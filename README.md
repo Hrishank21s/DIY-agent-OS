@@ -73,3 +73,8 @@ is `~/.agentos/agentos.db`.
 Server unit/integration tests and client component tests pass (see `docs/DEVELOPMENT.md` for
 exact counts and how to run them). See `docs/` for architecture, deployment, and security details
 and limitations.
+
+## Contributing
+
+Contributions are welcome! Please open an issue first to discuss what you'd like to change.
+Fork the repo, create a feature branch, and submit a pull request.

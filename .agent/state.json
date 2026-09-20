@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "project": {
+    "name": "DIY-agent-OS (AgentOS)",
+    "root": "/Users/hrishank21s/Desktop/Projects/open code agent/DIY-agent-OS",
+    "type": "node",
+    "packageManager": "npm",
+    "monorepo": true
+  },
+  "git": {
+    "present": true,
+    "branch": "main",
+    "headShort": "136c225",
+    "headFull": "136c2256c5ac23494c5815c668eba2c1b71cb998",
+    "dirty": false,
+    "lastKnownHead": "136c2256c5ac23494c5815c668eba2c1b71cb998"
+  },
+  "lastCheckpoint": "2026-09-20T12:39:05.000Z",
+  "checkpointCount": 1,
+  "objective": "Apply, verify, and ship all security-audit findings (#1-#34) for the AgentOS server + client",
+  "nextAction": "Hand off the running server at http://127.0.0.1:3000 for user smoke-testing: bootstrap login, forced password change, end-to-end task",
+  "lastDelta": { "commitsAfterLast": 0, "filesChangedSinceLast": 0 }
+}

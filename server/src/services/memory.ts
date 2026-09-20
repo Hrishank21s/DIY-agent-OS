@@ -1,5 +1,8 @@
 import { nanoid } from 'nanoid';
 import { getDb } from '../db/index.js';
+import { getLogger } from '../lib/logger.js';
+
+const log = getLogger();
 
 export type MemoryType =
   | 'USER_PREFERENCE'
@@ -63,8 +66,9 @@ export class MemoryService {
       db.db
         .prepare('INSERT INTO memories_fts_index (memory_id, content, tags) VALUES (?, ?, ?)')
         .run(id, content, tags);
-    } catch {
-      // FTS indexes are best-effort
+    } catch (err) {
+      // FTS indexes are best-effort, but silent failure hid real errors (LOW #22).
+      log.warn('memory', 'FTS index insert failed', { id, error: (err as Error).message });
     }
   }
 

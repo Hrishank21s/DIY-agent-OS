@@ -130,11 +130,6 @@ CREATE TABLE IF NOT EXISTS memories (
   last_used_at TEXT
 );
 
-CREATE TABLE IF NOT EXISTS memories_fts (
-  memory_id TEXT PRIMARY KEY REFERENCES memories(id) ON DELETE CASCADE,
-  content TEXT NOT NULL,
-  tags TEXT
-);
 CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts_index USING fts5(memory_id UNINDEXED, content, tags);
 
 CREATE TABLE IF NOT EXISTS notes (

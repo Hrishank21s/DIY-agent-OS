@@ -20,7 +20,7 @@
     "postinstall": "npm run build -w client"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.5"
   },
   "devDependencies": {
     "concurrently": "^10.0.5",

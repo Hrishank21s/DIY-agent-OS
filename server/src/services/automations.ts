@@ -29,7 +29,7 @@ export class AutomationService {
   create(input: Partial<Automation> & { name: string; prompt: string; schedule_type: string; schedule_value: string }): Automation {
     const db = getDb();
     const id = nanoid();
-    const next = this.computeNext(input.schedule_type, input.schedule_value);
+    const next = this.serializeNext(input.schedule_type, input.schedule_value);
     db.db
       .prepare(
         `INSERT INTO automations (id, name, prompt, agent_id, project_id, schedule_type, schedule_value, enabled, next_run_at)
@@ -84,7 +84,7 @@ export class AutomationService {
     const sv = input.schedule_value || existing.schedule_value;
     if (input.schedule_type || input.schedule_value) {
       sets.push('next_run_at = ?');
-      params.push(this.computeNext(st, sv));
+      params.push(this.serializeNext(st, sv));
     }
     if (sets.length) {
       sets.push("updated_at = datetime('now')");
@@ -136,8 +136,7 @@ export class AutomationService {
           return next.toISOString();
         }
         if (freq === 'hourly') {
-          const next = new Date(now.getTime() + 60 * 60 * 1000);
-          return next.toISOString();
+          return new Date(now.getTime() + 60 * 60 * 1000).toISOString();
         }
         return null;
       }
@@ -145,6 +144,18 @@ export class AutomationService {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * Scheduled `next_run_at` for a new/updated schedule.
+   *
+   * A one_time schedule whose target is already in the past is never armed
+   * (NULL) — it must not be caught by the 10s poll and re-fired forever.
+   */
+  private serializeNext(type: string, value: string): string | null {
+    const next = this.computeNext(type, value);
+    if (type === 'one_time' && next && new Date(next).getTime() <= Date.now()) return null;
+    return next;
   }
 
   /**
@@ -178,7 +189,10 @@ export class AutomationService {
         'INSERT INTO automation_runs (id, automation_id, task_id, status) VALUES (?, ?, ?, ?)',
       )
       .run(runId, a.id, task.id, 'queued');
-    const next = this.computeNext(a.schedule_type, a.schedule_value);
+    // A fired one_time automation has no next run (NULL); recurring schedulers
+    // advance from the current time. Without this, one_time re-armed the same
+    // past timestamp and the 10s poll re-triggered it every tick forever.
+    const next = a.schedule_type === 'one_time' ? null : this.computeNext(a.schedule_type, a.schedule_value);
     db.db
       .prepare(
         "UPDATE automations SET last_run_at = datetime('now'), next_run_at = ?, updated_at = datetime('now') WHERE id = ?",

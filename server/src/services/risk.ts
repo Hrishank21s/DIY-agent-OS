@@ -20,7 +20,6 @@ export interface AllowedRule {
 }
 
 const HIGH_RISK_COMMANDS = new Set([
-  'rm',
   'rmdir',
   'sudo',
   'launchctl',
@@ -56,17 +55,12 @@ const HIGH_RISK_COMMANDS = new Set([
   'pip3',
   'gem',
   'cargo',
-  'go install',
-  'git push',
-  'git reset',
-  'git clean',
   'curl',
   'wget',
   'chroot',
   'mount',
   'umount',
   'openssl',
-  'rmdir',
 ]);
 
 const MEDIUM_RISK_COMMANDS = new Set([
@@ -74,12 +68,6 @@ const MEDIUM_RISK_COMMANDS = new Set([
   'cp',
   'touch',
   'mkdir',
-  'git add',
-  'git commit',
-  'git checkout',
-  'git branch',
-  'git merge',
-  'git rebase',
   'ssh',
   'scp',
   'python',
@@ -154,6 +142,16 @@ function resolveRealPath(p: string): string {
   }
 }
 
+/**
+ * The risky part of a command name. We compare on the *basename* so an
+ * absolute path (`/bin/rm`, `/usr/bin/sudo`, `/tmp/evil-rm`) is classified
+ * exactly like the bare name — otherwise the mandatory-approval gate can be
+ * trivially bypassed.
+ */
+function commandName(argv0: string): string {
+  return basename(argv0).toLowerCase();
+}
+
 function executableMatches(argv0: string, ruleExec: string): boolean {
   if (argv0 === ruleExec) return true;
   return basename(argv0) === basename(ruleExec) || resolveRealPath(argv0) === resolveRealPath(ruleExec);
@@ -180,8 +178,9 @@ export function analyzeCommand(argv: string[], approvalPolicy: string, allowedRu
   const policy = normalizeApprovalPolicy(approvalPolicy);
   const base = classifyCommand(argv);
 
-  // Hard rule: catastrophic commands always require approval
-  const baseCmd = (argv[0] || '').toLowerCase();
+  // Hard rule: catastrophic commands always require approval. Matched on the
+  // basename so `/bin/rm`, `/usr/bin/sudo`, `sudo` all hit the same gate.
+  const baseCmd = commandName(argv[0] || '');
   if (MUST_APPROVE_COMMANDS.has(baseCmd)) {
     return {
       risk: base,
@@ -201,15 +200,15 @@ export function analyzeCommand(argv: string[], approvalPolicy: string, allowedRu
 }
 
 function classifyCommand(argv: string[]): RiskLevel {
-  const cmd = (argv[0] || '').toLowerCase();
+  const cmd = commandName(argv[0] || '');
   const args = argv.slice(1).join(' ');
 
-  // git subcommands
+  // git subcommands (word-boundary bounded so 'pushd' doesn't match 'push')
   if (cmd === 'git') {
-    if (/(^|\s)(push|reset|clean|checkout -b|branch -D|merge --abort|rebase --abort|rev-parse master)/.test(args)) {
+    if (/(^|\s)(push|reset|clean|checkout -b|branch -D|merge --abort|rebase --abort|rev-parse master)\b/.test(args)) {
       return 'high';
     }
-    if (/(^|\s)(add|commit|checkout|branch|merge|rebase|stash|log|diff|status)/.test(args)) {
+    if (/(^|\s)(add|commit|checkout|branch|merge|rebase|stash|log|diff|status)\b/.test(args)) {
       return 'medium';
     }
     return 'low';

@@ -27,6 +27,31 @@ describe('Risk classification', () => {
     expect(a.requiresApproval).toBe(true);
   });
 
+  it('absolute executable paths cannot bypass the mandatory-approval gate', () => {
+    // Regression: raw argv[0] string matching let /bin/rm, /usr/bin/sudo and
+    // /tmp/rm classify as 'low' under every policy.
+    expect(analyzeCommand(['/bin/rm', '-rf', '/important'], 'safe').requiresApproval).toBe(true);
+    expect(analyzeCommand(['/usr/bin/sudo', 'whoami'], 'safe').requiresApproval).toBe(true);
+    expect(analyzeCommand(['/usr/bin/rm', '-rf', '/important'], 'high').requiresApproval).toBe(true);
+    expect(analyzeCommand(['/bin/kill', '-9', '4242'], 'safe').requiresApproval).toBe(true);
+    expect(analyzeCommand(['/sbin/diskutil', 'eraseVolume'], 'medium').requiresApproval).toBe(true);
+  });
+
+  it('absolute-path git commands are still classified by subcommand', () => {
+    const push = analyzeCommand(['/usr/bin/git', 'push', 'origin', 'main'], 'low');
+    expect(push.requiresApproval).toBe(true);
+    expect(push.risk).toBe('high');
+    const status = analyzeCommand(['/usr/local/bin/git', 'status'], 'low');
+    expect(status.requiresApproval).toBe(true);
+    expect(status.risk).toBe('medium');
+  });
+
+  it('whitelist rules cannot be bypassed by renaming the executable path', () => {
+    // A rule for `ls` must NOT allow /bin/rm (different basename, no realpath match).
+    const a = analyzeCommand(['/bin/rm', '/tmp'], 'safe', [{ executable: 'ls', args: ['/tmp'] }]);
+    expect(a.requiresApproval).toBe(true);
+  });
+
   it('ls is safe', () => {
     const a = analyzeCommand(['ls', '-la'], 'safe');
     expect(a.risk).toBe('safe');

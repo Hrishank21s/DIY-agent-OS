@@ -45,6 +45,8 @@ export class TaskQueue {
       clearInterval(this.pollTimer);
       this.pollTimer = null;
     }
+    // Tear down child process groups so nothing survives an agentos stop (#7).
+    this.worker.killAll();
   }
 
   async poll(): Promise<void> {

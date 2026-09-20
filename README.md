@@ -6,10 +6,10 @@
 Built with Fastify + TypeScript, React + Vite, SQLite, and the OpenCode CLI as a replaceable AI brain.
 
 ![Platform macOS](https://img.shields.io/badge/platform-macOS-333333?style=flat&logo=apple&logoColor=white)
-![Node](https://img.shields.io/badge/node-%3E%3D20-success?style=flat&logo=node.js&logoColor=white&color=339933)
+![Node](https://img.shields.io/badge/node-%3E%3D22.5-success?style=flat&logo=node.js&logoColor=white&color=339933)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.5-3178C6?style=flat&logo=typescript&logoColor=white)
 ![React](https://img.shields.io/badge/React-18-61DAFB?style=flat&logo=react&logoColor=black)
-![Tests](https://img.shields.io/badge/tests-100%20passing-brightgreen?style=flat)
+![Tests](https://img.shields.io/badge/tests-109%20passing-brightgreen?style=flat)
 ![License](https://img.shields.io/badge/license-MIT-blue?style=flat)
 
 </div>
@@ -41,11 +41,12 @@ Everything is yours: single-user by design, no cloud dependency, data lives in `
   agent prompts.
 - **Automations** — interval or cron-triggered tasks via a built-in scheduler.
 - **Chat** — memory-first classification (reply vs. store) per conversation.
-- **Hardened auth** — scrypt password hashing, forced password change on first login,
-  rate-limited login, and `httpOnly` + `SameSite=Strict` session cookies.
+- **Hardened auth** — scrypt password hashing (N=65536), forced password change on first login,
+  account lockout after repeated failures, rate-limited login, timing-equalized login, session
+  pruning, and `httpOnly` + `SameSite=Strict` session cookies.
 - **Crash recovery** — interrupted tasks are recovered on restart with a double-execution guard.
-- **Real-time dashboard** — WebSocket-driven live updates for task status, output, approvals,
-  and system health.
+- **Real-time dashboard** — server-sent events (SSE) for task status, output, approvals, and
+  system health.
 - **No shell execution** — commands run via `spawn(argv, { shell: false })`, so argv is never
   string-interpreted.
 
@@ -61,8 +62,8 @@ integration-driven commands. See `docs/SECURITY.md` for the exact boundaries.
 
 ```
                     ┌──────────────────────────────────────────────┐
-   Browser ───────▶ │ Fastify (port 3000, 0.0.0.0)                 │
-   (React SPA)      │  /api/v1/* REST + /realtime WS hub           │
+   Browser ───────▶ │ Fastify (port 3000, 127.0.0.1)               │
+   (React SPA)      │  /api/v1/* REST + /realtime SSE hub          │
                     │  static client/dist + SPA fallback           │
                     ├──────────────────────────────────────────────┤
                     │ TaskQueue worker (poll 1s, concurrency N)    │
@@ -78,7 +79,7 @@ events.
 
 ## Quickstart
 
-Requirements: **Node >= 22** (tested on 26), the **OpenCode CLI**, and a model provider.
+Requirements: **Node >= 22.5** (tested on 26), the **OpenCode CLI**, and a model provider.
 
 ```bash
 npm install
@@ -94,7 +95,8 @@ On first start the server prints bootstrap credentials: from `AGENTOS_BOOTSTRAP_
 
 ### Access from your LAN
 
-Start with `AGENTOS_HOST=0.0.0.0` (the default) and browse to `http://<your-mac-ip>:3000`.
+By default the server binds loopback (`127.0.0.1`) for safety. To expose it on your LAN, start
+with `AGENTOS_HOST=0.0.0.0` and browse to `http://<your-mac-ip>:3000`.
 Because state-changing requests are only accepted from loopback or explicitly configured origins,
 set:
 

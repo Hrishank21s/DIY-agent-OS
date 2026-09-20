@@ -18,6 +18,12 @@ const createSchema = z.object({
   priority: z.enum(['low', 'normal', 'high']).optional(),
 });
 
+const patchSchema = z.object({
+  status: z.enum(['cancel', 'retry', 'queued', 'paused']).optional(),
+  prompt: z.string().min(1).max(20000).optional(),
+  priority: z.enum(['low', 'normal', 'high']).optional(),
+});
+
 export function taskRoutes(app: FastifyInstance, getQueue: () => TaskQueue): void {
   app.get('/api/v1/tasks', { preHandler: requireAuth }, async (req) => {
     const q = (req.query as { status?: string; project_id?: string; agent_id?: string; limit?: string }) || {};
@@ -25,7 +31,7 @@ export function taskRoutes(app: FastifyInstance, getQueue: () => TaskQueue): voi
       status: q.status,
       project_id: q.project_id,
       agent_id: q.agent_id,
-      limit: parseInt(q.limit || '100', 10),
+      limit: Math.min(Math.max(parseInt(q.limit || '100', 10) || 100, 1), 500),
     });
     return { tasks: list };
   });
@@ -59,7 +65,9 @@ export function taskRoutes(app: FastifyInstance, getQueue: () => TaskQueue): voi
 
   app.patch('/api/v1/tasks/:id', { preHandler: requireAuth }, async (req, reply) => {
     const id = (req.params as { id: string }).id;
-    const body = (req.body as { status?: string; prompt?: string; priority?: string }) || {};
+    const parsed = patchSchema.safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send({ error: 'Invalid request' });
+    const body = parsed.data;
     const existing = tasks.get(id);
     if (!existing) return reply.code(404).send({ error: 'Task not found' });
 
@@ -75,6 +83,10 @@ export function taskRoutes(app: FastifyInstance, getQueue: () => TaskQueue): voi
     }
     if (body.status === 'queued' && existing.status === 'paused') {
       tasks.updateStatus(id, 'queued');
+      return { task: tasks.get(id) };
+    }
+    if (body.status === 'paused' && existing.status === 'queued') {
+      tasks.updateStatus(id, 'paused');
       return { task: tasks.get(id) };
     }
     if (body.prompt) {

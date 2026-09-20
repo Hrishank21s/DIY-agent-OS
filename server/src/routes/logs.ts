@@ -10,8 +10,8 @@ export function logsRoutes(app: FastifyInstance): void {
     const q = (req.query as Record<string, string>) || {};
     const db = getDb();
     const category = q.category;
-    const limit = parseInt(q.limit || '100', 10);
-    const offset = parseInt(q.offset || '0', 10);
+    const limit = Math.min(Math.max(parseInt(q.limit || '100', 10) || 100, 1), 500);
+    const offset = Math.max(parseInt(q.offset || '0', 10) || 0, 0);
     let sql = 'SELECT * FROM task_logs WHERE 1=1';
     const params: (string | number)[] = [];
     if (category) {
@@ -29,13 +29,14 @@ export function logsRoutes(app: FastifyInstance): void {
 
   app.get('/api/v1/logs/audit', { preHandler: requireAuth }, async (req) => {
     const q = (req.query as Record<string, string>) || {};
-    return { logs: audit.list(parseInt(q.limit || '100', 10), q.category) };
+    const limit = Math.min(Math.max(parseInt(q.limit || '100', 10) || 100, 1), 500);
+    return { logs: audit.list(limit, q.category) };
   });
 
   app.get('/api/v1/logs/commands', { preHandler: requireAuth }, async (req) => {
     const q = (req.query as Record<string, string>) || {};
     const db = getDb();
-    const limit = parseInt(q.limit || '100', 10);
+    const limit = Math.min(Math.max(parseInt(q.limit || '100', 10) || 100, 1), 500);
     const rows = db.db
       .prepare('SELECT * FROM command_logs ORDER BY created_at DESC LIMIT ?')
       .all(limit) as Record<string, unknown>[];

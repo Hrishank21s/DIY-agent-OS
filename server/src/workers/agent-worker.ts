@@ -8,6 +8,7 @@ import { NoteService } from '../services/notes.js';
 import { type OpenCodeExecutor, type ExecutorController } from '../executors/opencode.js';
 import { ChatService } from '../services/chat.js';
 import { hub, emitTaskStatus, emitTaskOutput, emitSystemStatus } from '../services/realtime.js';
+import { config } from '../config.js';
 
 const log = getLogger();
 const chat = new ChatService();
@@ -55,7 +56,9 @@ export class AgentWorker {
     emitTaskStatus(taskId, 'running');
     this.tasks.addLog(taskId, 'info', `Starting task with agent '${agent.name}'`, 'worker');
 
-    const timeoutMs = (agent.timeout_seconds || 600) * 1000;
+    const timeoutMs = agent.timeout_seconds
+      ? agent.timeout_seconds * 1000
+      : this.settings.getNumber('task_timeout_ms', config.taskTimeoutMs);
     const cwd = this.resolveCwd(task, agent);
     const prompt = this.composePrompt(task, agent);
 
@@ -67,6 +70,11 @@ export class AgentWorker {
       agentSystemPrompt: agent.system_prompt,
       cwd,
       timeoutMs,
+      // Grab the controller synchronously at spawn so user cancels work even
+      // for a run that never settles (#7).
+      onController: controller => {
+        controllerRef.current = controller;
+      },
       onEvent: evt => {
         hub.emit('task:opencode', { taskId, evt });
       },
@@ -78,10 +86,6 @@ export class AgentWorker {
         this.tasks.addLog(taskId, 'warn', chunk, 'opencode');
         emitTaskOutput(taskId, chunk, 'stderr');
       },
-    });
-
-    runPromise.then(({ controller }) => {
-      controllerRef.current = controller;
     });
 
     this.registerCancellable(taskId, () => controllerRef.current?.cancel());
@@ -223,6 +227,19 @@ export class AgentWorker {
     return this.running.size;
   }
 
+  /**
+   * Cancel every in-flight task (used on shutdown so child process groups are
+   * torn down too — no orphaned double-execution on restart, #7).
+   */
+  killAll(): void {
+    for (const taskId of [...this.running]) {
+      this.cancellables.get(taskId)?.();
+      this.tasks.updateStatus(taskId, 'cancelled', { result: 'Server shutdown' });
+      emitTaskStatus(taskId, 'cancelled');
+      this.unregisterCancellable(taskId);
+    }
+  }
+
   private extractMemory(task: Task, agent: Agent): void {
     try {
       const canWrite = agent.permissions.some(
@@ -231,6 +248,8 @@ export class AgentWorker {
       if (!canWrite) return;
       const autoExtract = this.settings.getBool('memory_auto_extract', true);
       if (!autoExtract) return;
+      // Settings-driven importance threshold: only keep sentences at/above it (#3).
+      const threshold = this.settings.getNumber('memory_importance_threshold', 0.4);
       const text = task.result;
       if (!text) return;
 
@@ -238,14 +257,15 @@ export class AgentWorker {
       if (!type) return;
 
       const sentences = text.match(/[^.!?\n]+[.!?]?/g) || [];
-      const useful = sentences.filter(s => s.length > 30 && s.length < 500).slice(0, 3);
+      const useful = sentences
+        .filter(s => s.length > 30 && s.length < 500)
+        .filter(s => (this.memory.retrieveQuery(s, { limit: 1 })[0]?.importance ?? 0) <= threshold)
+        .slice(0, 3);
       for (const s of useful) {
-        const existing = this.memory.retrieveQuery(s, { limit: 1 });
-        if (existing.length && existing[0].importance > 0.5) continue;
         this.memory.create({
           content: s.trim(),
           type,
-          importance: 0.5,
+          importance: threshold,
           source_task_id: task.id,
           source_conversation_id: task.conversation_id || null,
           project_id: task.project_id || null,

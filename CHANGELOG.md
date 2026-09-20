@@ -13,6 +13,30 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - GitHub issue templates (bug report, feature request) and pull request template
 - `.editorconfig` for consistent editor settings
 - README badges, revamped structure, and roadmap
+- Automatic login-lockout: after repeated failures the account is locked for a configurable window
+  (`login_failed_attempts`, `login_lockout_minutes`)
+- CI workflow running typecheck + tests on Node 22 and 24
+- `engines` constraint `node >= 22.5` on both workspaces and a `doctor` check
+
+### Changed
+
+- Server binds `127.0.0.1` by default; set `AGENTOS_HOST=0.0.0.0` explicitly for LAN access
+- New scrypt hashes use N=65536; older N=32768 hashes still verify
+- Login is timing-equalized against a dummy hash and sessions are pruned to the 50 most recent
+- Risk classification matches on the command basename, closing the absolute-path bypass
+  (`/bin/rm`, `/usr/bin/sudo`)
+- One-shot (`one_time`) automations are never re-armed after firing or when scheduled in the past
+- Approval reads no longer reset expiry; expiry only via explicit sweep
+- Rate limits, approval rules, task timeout, memory threshold, and lockout settings are enforced
+  from the settings table at run time
+- Removed `@fastify/websocket` and `@fastify/csrf-protection` dependencies
+- `AGENTOS_TRUST_PROXY` now also accepts hop counts (`1`, `2`, …); disabled by default
+
+### Security
+
+- Mandatory-approval command gate cannot be bypassed with an absolute path
+- Account lockout and settings-driven rate limits for login and the API
+- `open`/vulnerable static path-guard removal on directory traversal patterns
 
 ## [1.0.0] - 2026-09-10
 

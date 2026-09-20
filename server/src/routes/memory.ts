@@ -32,7 +32,7 @@ export function memoryRoutes(app: FastifyInstance): void {
       projectId: q.project_id,
       type: q.type as MemoryType | undefined,
       importanceMin: q.importance_min ? parseFloat(q.importance_min) : undefined,
-      limit: parseInt(q.limit || '100', 10),
+      limit: Math.min(Math.max(parseInt(q.limit || '100', 10) || 100, 1), 500),
     });
     return { memories: list };
   });
@@ -44,7 +44,6 @@ export function memoryRoutes(app: FastifyInstance): void {
       limit: parseInt(q.limit || '10', 10),
       importanceMin: q.importance_min ? parseFloat(q.importance_min) : undefined,
     });
-    for (const r of results) memory.touch(r.id);
     return { memories: results };
   });
 

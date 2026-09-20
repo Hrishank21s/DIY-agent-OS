@@ -1,5 +1,5 @@
 import { config } from '../config.js';
-import { spawn, execSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -46,6 +46,13 @@ export async function cliStop(): Promise<void> {
     return;
   }
   const pid = parseInt(fs.readFileSync(PID_FILE, 'utf-8'), 10);
+  // Verify the pid is actually an AgentOS server process before trusting the
+  // pid file — a recycled pid could otherwise kill an unrelated process.
+  if (isRunning(pid) && !psCommandLooksLikeAgent(pid)) {
+    console.log(`PID ${pid} does not look like an AgentOS process; removing stale pid file.`);
+    fs.unlinkSync(PID_FILE);
+    return;
+  }
   try {
     process.kill(pid, 'SIGTERM');
     console.log(`Sent SIGTERM to PID ${pid}.`);
@@ -53,6 +60,16 @@ export async function cliStop(): Promise<void> {
     console.log(`PID ${pid} not running; removing stale pid file.`);
   }
   fs.unlinkSync(PID_FILE);
+}
+
+function psCommandLooksLikeAgent(pid: number): boolean {
+  try {
+    const r = spawnSync('ps', ['-p', String(pid), '-o', 'command='], { encoding: 'utf-8' });
+    const cmd = (r.stdout || '').trim();
+    return cmd.includes('index.js') || cmd.includes('index.ts') || cmd.includes('agentos');
+  } catch {
+    return false;
+  }
 }
 
 export function cliStatus(): void {
@@ -63,8 +80,8 @@ export function cliStatus(): void {
   const running = pid ? isRunning(pid) : false;
   console.log(running ? `AgentOS: RUNNING (PID ${pid})` : 'AgentOS: NOT RUNNING');
   const port = config.port;
-  console.log(`URL: http://localhost:${port}`);
-  console.log(`LAN: http://0.0.0.0:${port}`);
+  console.log(`URL: ${config.host}:${port}`);
+  if (config.host !== '0.0.0.0') console.log('LAN: bind to 0.0.0.0 to expose on the network (AGENTOS_HOST=0.0.0.0)');
   console.log(`Data dir: ${config.dataDir}`);
 }
 
@@ -81,11 +98,13 @@ export function cliDoctor(): Promise<number> {
   console.log('=== AgentOS Doctor ===\n');
   let ok = true;
 
-  // Node
+  // Node (node:sqlite requires >= 22.5)
   const node = process.version;
   console.log(`✓ Node: ${node}`);
-  if (parseInt(node.replace('v', '').split('.')[0], 10) < 20) {
-    console.log('  ✗ Node >= 20 recommended');
+  const majorMinor = node.replace('v', '').split('.').slice(0, 2).map(Number);
+  const versionNum = majorMinor[0] * 100 + majorMinor[1];
+  if (versionNum < 2205) {
+    console.log('  ✗ Node >= 22.5 required (node:sqlite). Current is too old.');
     ok = false;
   }
 
@@ -132,15 +151,15 @@ export function cliDoctor(): Promise<number> {
   }
 
   // Network binding check (port open?)
-  const net = spawn(process.execPath, ['-e', `require('node:net').createServer().listen(${config.port}, '0.0.0.0', () => { console.log('BIND_OK'); process.exit(0); }).on('error', () => { console.log('BIND_FAIL'); process.exit(1); })`], { stdio: 'pipe' });
+  const net = spawn(process.execPath, ['-e', `require('node:net').createServer().listen(${config.port}, '${config.host}', () => { console.log('BIND_OK'); process.exit(0); }).on('error', () => { console.log('BIND_FAIL'); process.exit(1); })`], { stdio: 'pipe' });
   let netOut = '';
   net.stdout?.on('data', d => (netOut += d.toString()));
   return new Promise<number>(res => {
     net.on('close', _code => {
       if (netOut.includes('BIND_OK')) {
-        console.log(`✓ Network: 0.0.0.0:${config.port} bindable`);
+        console.log(`✓ Network: ${config.host}:${config.port} bindable`);
       } else {
-        console.log(`✗ Network: cannot bind 0.0.0.0:${config.port} (in use?)`);
+        console.log(`✗ Network: cannot bind ${config.host}:${config.port} (in use?)`);
         ok = false;
       }
       // launchd
@@ -158,11 +177,9 @@ export function cliDoctor(): Promise<number> {
 }
 
 function runCmd(cmd: string, args: string[]): string {
-  return execSync(`"${cmd}" ${args.map(a => `"${escapeArg(a)}"`).join(' ')}`, { encoding: 'utf-8', timeout: 20000 });
-}
-
-function escapeArg(a: string): string {
-  return a.replace(/"/g, '\\"');
+  const r = spawnSync(cmd, args, { encoding: 'utf-8', timeout: 20000 });
+  if (r.status !== 0) throw new Error(r.stderr || `exit ${r.status}`);
+  return r.stdout || '';
 }
 
 const LAUNCHD_DIR = path.join(os.homedir(), 'Library', 'LaunchAgents');

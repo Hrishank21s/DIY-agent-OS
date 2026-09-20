@@ -5,6 +5,10 @@ import { AgentService } from '../services/agents.js';
 import { Logger } from '../lib/logger.js';
 import { config, isAllowedOpenCodePath } from '../config.js';
 
+/** Cap unbounded result text/events so a runaway model cannot OOM the server (#18). */
+export const MAX_RESULT_TEXT = 200_000;
+export const MAX_RESULT_EVENTS = 10_000;
+
 export interface OpenCodeEvent {
   type: string;
   text?: string;
@@ -34,6 +38,13 @@ export interface RunOptions {
   onStdout?: (chunk: string) => void;
   onStderr?: (chunk: string) => void;
   env?: Record<string, string>;
+  /**
+   * Invoked synchronously once the child process has been spawned, giving the
+   * caller a working controller immediately. Without this, a caller grabbing
+   * the controller from the resolution value could only cancel *after* the run
+   * completed — a no-op that silently abandoned cancels.
+   */
+  onController?: (controller: ExecutorController) => void;
 }
 
 export interface ExecutorController {
@@ -148,9 +159,6 @@ export class OpenCodeCliExecutor implements OpenCodeExecutor {
         args.push('--model', agentModel);
       }
     }
-    if (opts.sessionId) {
-      args.push('--session', opts.sessionId);
-    }
     if (opts.cwd) {
       args.push('--dir', opts.cwd);
     }
@@ -179,14 +187,22 @@ export class OpenCodeCliExecutor implements OpenCodeExecutor {
         clearTimeout(timer);
         result.timedOut = timedOut;
         result.cancelled = cancelled;
+        // Cap unbounded text/event accumulation (LOW #18).
+        const capText = (s: string) => (s.length <= MAX_RESULT_TEXT ? s : `${s.slice(0, MAX_RESULT_TEXT)}\n…[output truncated]`);
+        result.text = capText(result.text);
+        if (result.events.length > MAX_RESULT_EVENTS) result.events.length = MAX_RESULT_EVENTS;
+        if (result.error) result.error = capText(result.error);
         resolve({ result, controller });
       };
 
+      let timer: NodeJS.Timeout;
       try {
         child = spawn(this.opencodePath, args, {
           shell: false,
           stdio: ['ignore', 'pipe', 'pipe'],
           cwd: opts.cwd || undefined,
+          // Own process group so cancellation can kill grandchildren too (#7).
+          detached: true,
           env: {
             ...process.env,
             ...(opts.env || {}),
@@ -194,17 +210,26 @@ export class OpenCodeCliExecutor implements OpenCodeExecutor {
           },
         }) as unknown as ChildProcessWithoutNullStreams;
       } catch (err) {
+        if (completed) return;
         result.error = (err as Error).message;
-        finalize();
+        completed = true;
+        result.timedOut = false;
+        result.cancelled = false;
+        resolve({ result, controller });
         return;
       }
 
       controller.pid = child.pid ?? null;
+      const killGroup = (sig: NodeJS.Signals) => {
+        if (!child?.pid) return;
+        try { process.kill(-child.pid, sig); } catch {}
+      };
       controller.cancel = () => {
         cancelled = true;
-        try { child?.kill('SIGTERM'); } catch {}
-        setTimeout(() => { try { child?.kill('SIGKILL'); } catch {} }, 3000);
+        killGroup('SIGTERM');
+        setTimeout(() => killGroup('SIGKILL'), 3000);
       };
+      if (opts.onController) opts.onController(controller);
 
       const rl = readline.createInterface({ input: child.stdout });
       rl.on('line', line => {
@@ -259,7 +284,7 @@ export class OpenCodeCliExecutor implements OpenCodeExecutor {
         finalize();
       });
 
-      const timer = setTimeout(() => {
+      timer = setTimeout(() => {
         timedOut = true;
         controller.cancel();
       }, opts.timeoutMs || config.taskTimeoutMs);

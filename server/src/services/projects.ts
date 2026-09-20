@@ -63,6 +63,15 @@ export class ProjectService {
 
   delete(id: string): void {
     const db = getDb();
+    // Nullify loose references so nothing points at a dead project. tasks and
+    // notes already SET NULL via their FKs (#23).
+    for (const [table, col] of [
+      ['conversations', 'project_id'],
+      ['memories', 'project_id'],
+      ['automations', 'project_id'],
+    ] as const) {
+      db.db.prepare(`UPDATE ${table} SET ${col} = NULL WHERE ${col} = ?`).run(id);
+    }
     db.db.prepare('DELETE FROM projects WHERE id = ?').run(id);
   }
 

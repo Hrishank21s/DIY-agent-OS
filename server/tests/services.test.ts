@@ -50,13 +50,17 @@ describe('ApprovalService', () => {
     expect(again!.changed).toBe(false);
   });
 
-  it('lazy-expires approvals past their window', () => {
+  it('get() stays read-only; expiry is an explicit write concern', () => {
     const svc = new ApprovalService();
     const a = svc.create({ type: 'command', description: 'old', risk_level: 'high' });
     const db = getDb();
     db.db
       .prepare('UPDATE approvals SET expires_at = ? WHERE id = ?')
       .run(new Date(Date.now() - 1000).toISOString(), a.id);
+    // A plain read must NOT flip the row (regression for the write-on-read bug).
+    expect(svc.get(a.id)!.status).toBe('pending');
+    // Expiry happens only when the write concern is invoked explicitly.
+    svc.expireStale();
     const fetched = svc.get(a.id)!;
     expect(fetched.status).toBe('rejected');
     expect(fetched.reviewer_note).toContain('Expired');
@@ -184,5 +188,33 @@ describe('AutomationService', () => {
     const taskId = svc.trigger(a);
     const tasks = new TaskService();
     expect(tasks.get(taskId)).not.toBeNull();
+  });
+
+  it('fired one_time automations are not re-armed (no re-fire loop)', () => {
+    const svc = new AutomationService();
+    const a = svc.create({
+      name: 'OneShot',
+      prompt: 'Do Y',
+      schedule_type: 'one_time',
+      schedule_value: new Date(Date.now() + 60_000).toISOString(), // 1 minute in the future
+    });
+    expect(a.next_run_at).toBeTruthy();
+    svc.trigger(a);
+    // After firing, next_run_at must be NULL so the poller never re-triggers it.
+    const after = svc.get(a.id)!;
+    expect(after.next_run_at).toBeNull();
+    expect(svc.triggerDue()).not.toContain(a.id);
+  });
+
+  it('one_time automation with a past target is never armed', () => {
+    const svc = new AutomationService();
+    const a = svc.create({
+      name: 'ScheduledPast',
+      prompt: 'Do Z',
+      schedule_type: 'one_time',
+      schedule_value: new Date(Date.now() - 60_000).toISOString(), // already in the past
+    });
+    expect(a.next_run_at).toBeNull();
+    expect(svc.triggerDue()).not.toContain(a.id);
   });
 });

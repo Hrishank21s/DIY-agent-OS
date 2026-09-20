@@ -1,11 +1,13 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { AuthService } from '../services/auth.js';
+import { SettingsService } from '../services/settings.js';
 import { requireAuth, extractToken } from '../middleware/auth.js';
 import { hashToken } from '../lib/password.js';
 import { config } from '../config.js';
 
 const auth = new AuthService();
+const settings = new SettingsService();
 
 const loginSchema = z.object({
   username: z.string().min(1).max(64),
@@ -18,27 +20,34 @@ const changePasswordSchema = z.object({
 });
 
 export function authRoutes(app: FastifyInstance): void {
-  app.post('/api/v1/auth/login', { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async (req, reply) => {
-    const parsed = loginSchema.safeParse(req.body);
-    if (!parsed.success) {
-      return reply.code(400).send({ error: 'Invalid request', details: parsed.error.flatten() });
-    }
-    const { username, password } = parsed.data;
-    const ip = req.ip;
-    const result = auth.login(username, password, ip);
-    if (!result) {
-      return reply.code(401).send({ error: 'Invalid username or password' });
-    }
-    const durationMin = auth.sessionDurationMinutes();
-    reply.setCookie('agentos_session', result.token, {
-      path: '/',
-      httpOnly: true,
-      sameSite: 'strict',
-      secure: config.cookieSecure,
-      maxAge: durationMin * 60,
+  app.post(
+    '/api/v1/auth/login',
+    // Settings-driven rate limit so admins can tighten the default without code.
+    { config: { rateLimit: { max: settings.getNumber('login_rate_limit', 10), timeWindow: '1 minute' } } },
+    async (req, reply) => {
+      const parsed = loginSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return reply.code(400).send({ error: 'Invalid request', details: parsed.error.flatten() });
+      }
+      const { username, password } = parsed.data;
+      const ip = req.ip;
+      if (auth.isLockedOut(username, ip)) {
+        return reply.code(429).send({ error: 'Too many failed login attempts. Try again later.' });
+      }
+      const result = auth.login(username, password, ip);
+      if (!result) {
+        return reply.code(401).send({ error: 'Invalid username or password' });
+      }
+      const durationMin = auth.sessionDurationMinutes();
+      reply.setCookie('agentos_session', result.token, {
+        path: '/',
+        httpOnly: true,
+        sameSite: 'strict',
+        secure: config.cookieSecure,
+        maxAge: durationMin * 60,
+      });
+      return { user: result.user, requiresPasswordChange: result.user.mustChangePassword };
     });
-    return { user: result.user, requiresPasswordChange: result.user.mustChangePassword };
-  });
 
   app.post('/api/v1/auth/logout', async (req, reply) => {
     const token = (req.cookies as Record<string, string>)?.agentos_session;

@@ -60,12 +60,10 @@ export class ApprovalService {
     const db = getDb();
     const row = db.db.prepare('SELECT * FROM approvals WHERE id = ?').get(id) as Record<string, unknown> | undefined;
     if (!row) return null;
-    const a = dbToApproval(row);
-    if (a.status === 'pending' && this.isExpired(a)) {
-      this.expireOne(a.id);
-      return this.get(id);
-    }
-    return a;
+    // Read-only: do NOT mutate (expire) on read. Expiry is a write concern
+    // handled explicitly by expireStale()/countPending(). A read that writes
+    // made GET endpoints side-effecting (LOW #21).
+    return dbToApproval(row);
   }
 
   listPending(): Approval[] {
@@ -97,11 +95,6 @@ export class ApprovalService {
     this.expireStale();
     const db = getDb();
     return (db.db.prepare("SELECT COUNT(*) c FROM approvals WHERE status = 'pending'").get() as { c: number }).c;
-  }
-
-  private isExpired(a: Approval): boolean {
-    if (!a.expires_at) return false;
-    return new Date(a.expires_at).getTime() < Date.now();
   }
 
   private expireOne(id: string): boolean {

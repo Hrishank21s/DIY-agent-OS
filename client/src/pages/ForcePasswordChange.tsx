@@ -16,6 +16,10 @@ export default function ForcePasswordChange() {
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError('');
+    if (!currentPassword) {
+      setError('Current password is required');
+      return;
+    }
     if (newPassword !== confirmPassword) {
       setError('Passwords do not match');
       return;
@@ -27,7 +31,7 @@ export default function ForcePasswordChange() {
     setBusy(true);
     try {
       await api.post<{ ok: boolean }>('/auth/change-password', {
-        currentPassword: currentPassword || undefined,
+        currentPassword,
         newPassword,
       });
       if (user) {

@@ -32,7 +32,11 @@ const updateOpencodeSchema = z.object({
 const securitySchema = z.object({
   trusted_paths: z.array(z.string()).optional(),
   login_rate_limit: z.number().int().min(1).max(1000).optional(),
-  approval_rules: z.record(z.string()).optional(),
+  login_failed_attempts: z.number().int().min(1).max(100).optional(),
+  login_lockout_minutes: z.number().int().min(1).max(10080).optional(),
+  session_rate_limit: z.number().int().min(1).max(10000).optional(),
+  memory_importance_threshold: z.number().min(0).max(1).optional(),
+  approval_rules: z.record(z.union([z.string(), z.array(z.string())])).optional(),
 });
 
 export function settingsRoutes(app: FastifyInstance): void {
@@ -85,8 +89,20 @@ export function settingsRoutes(app: FastifyInstance): void {
     if (parsed.data.trusted_paths) {
       trustedPaths.setList(parsed.data.trusted_paths);
     }
-    if (parsed.data.login_rate_limit) {
+    if (parsed.data.login_rate_limit !== undefined) {
       settings.set('login_rate_limit', String(parsed.data.login_rate_limit));
+    }
+    if (parsed.data.login_failed_attempts !== undefined) {
+      settings.set('login_failed_attempts', String(parsed.data.login_failed_attempts));
+    }
+    if (parsed.data.login_lockout_minutes !== undefined) {
+      settings.set('login_lockout_minutes', String(parsed.data.login_lockout_minutes));
+    }
+    if (parsed.data.session_rate_limit !== undefined) {
+      settings.set('session_rate_limit', String(parsed.data.session_rate_limit));
+    }
+    if (parsed.data.memory_importance_threshold !== undefined) {
+      settings.set('memory_importance_threshold', String(parsed.data.memory_importance_threshold));
     }
     if (parsed.data.approval_rules) {
       settings.set('approval_rules', JSON.stringify(parsed.data.approval_rules));

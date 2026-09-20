@@ -5,12 +5,37 @@ import { getDb } from '../db/index.js';
 import { analyzeCommand, isWithinRoot, type AllowedRule } from './risk.js';
 import { ApprovalService } from './approvals.js';
 import { TaskService } from './tasks.js';
+import { SettingsService } from './settings.js';
 import { hub } from './realtime.js';
 import { Logger } from '../lib/logger.js';
 import { config } from '../config.js';
 
 const approvals = new ApprovalService();
 const tasks = new TaskService();
+const settings = new SettingsService();
+
+/** Cap persisted command output so huge stdout/stderr cannot bloat the DB. */
+export const MAX_COMMAND_OUTPUT = 200_000;
+
+/** Parse the `approval_rules` settings value into allow-list rules. */
+export function parseApprovalRules(raw?: string): AllowedRule[] {
+  if (!raw) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return [];
+    const out: AllowedRule[] = [];
+    for (const [executable, args] of Object.entries(parsed as Record<string, unknown>)) {
+      if (Array.isArray(args)) {
+        out.push({ executable, args: args.filter((a): a is string => typeof a === 'string') });
+      } else {
+        out.push({ executable });
+      }
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
 
 export interface CommandResult {
   id: string;
@@ -56,8 +81,10 @@ export class CommandExecutor {
       agentId: opts.agentId || null,
     };
 
-    // Risk assessment
-    const assessment = analyzeCommand(argv, opts.agentApprovalPolicy, opts.allowedRules || []);
+    // Risk assessment. When the caller does not pass explicit rules, honor the
+    // settings-driven approval_rules allow-list (the platform-approval knob).
+    const rules = opts.allowedRules || parseApprovalRules(settings.get('approval_rules'));
+    const assessment = analyzeCommand(argv, opts.agentApprovalPolicy, rules);
 
     // Record the command
     await this.recordCommand(result, opts, assessment);
@@ -141,12 +168,12 @@ export class CommandExecutor {
       let timedOut = false;
       child.stdout?.on('data', d => {
         const s = d.toString();
-        result.stdout += s;
+        if (result.stdout.length < MAX_COMMAND_OUTPUT) result.stdout += s;
         if (opts.onOutput) opts.onOutput(s, 'stdout');
       });
       child.stderr?.on('data', d => {
         const s = d.toString();
-        result.stderr += s;
+        if (result.stderr.length < MAX_COMMAND_OUTPUT) result.stderr += s;
         if (opts.onOutput) opts.onOutput(s, 'stderr');
       });
       child.on('error', err => {

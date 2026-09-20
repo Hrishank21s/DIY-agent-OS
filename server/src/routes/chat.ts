@@ -29,9 +29,12 @@ export function chatRoutes(app: FastifyInstance): void {
   });
 
   app.post('/api/v1/chat/conversations', { preHandler: requireAuth }, async (req, reply) => {
-    const body = (req.body as { title?: string; projectId?: string }) || {};
-    const title = (body.title || '').trim() || 'New conversation';
-    const conv = chat.createConversation(req.user!.id, title, body.projectId);
+    const parsed = z
+      .object({ title: z.string().max(500).optional(), projectId: z.string().max(2000).optional().nullable() })
+      .safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send({ error: 'Invalid request' });
+    const title = (parsed.data.title || '').trim() || 'New conversation';
+    const conv = chat.createConversation(req.user!.id, title, parsed.data.projectId || undefined);
     return reply.code(201).send({ conversation: conv });
   });
 
@@ -39,7 +42,15 @@ export function chatRoutes(app: FastifyInstance): void {
     const id = (req.params as { id: string }).id;
     const conv = chat.getOwnedConversation(id, req.user!.id);
     if (!conv) return reply.code(404).send({ error: 'Conversation not found' });
-    const body = (req.body as { title?: string; archived?: boolean; projectId?: string }) || {};
+    const parsed = z
+      .object({
+        title: z.string().max(2000).optional(),
+        archived: z.boolean().optional(),
+        projectId: z.string().max(2000).optional().nullable(),
+      })
+      .safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send({ error: 'Invalid request' });
+    const body = parsed.data;
     if (body.title !== undefined) chat.renameConversation(id, body.title.slice(0, 200));
     if (body.archived !== undefined) chat.archiveConversation(id, body.archived);
     if (body.projectId !== undefined) {
@@ -163,7 +174,6 @@ export function chatRoutes(app: FastifyInstance): void {
   app.get('/api/v1/chat/retrieve', { preHandler: requireAuth }, async (req) => {
     const q = (req.query as { q?: string; projectId?: string; limit?: string }) || {};
     const memories = memorySvc.retrieveQuery(q.q || '', { projectId: q.projectId, limit: parseInt(q.limit || '8', 10) });
-    for (const m of memories) memorySvc.touch(m.id);
     return { memories };
   });
 }

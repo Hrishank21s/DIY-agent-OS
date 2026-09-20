@@ -27,17 +27,19 @@ export function systemRoutes(app: FastifyInstance, deps: SystemDeps): void {
   app.get('/api/v1/system/status', { preHandler: requireAuth }, async () => {
     const opencode = await executor.isAvailable();
     const uptimeMs = Date.now() - deps.startedAt.getTime();
-    const uptimeMinutes = Math.floor(uptimeMs / 60000);
-    const uptimeText = `${Math.floor(uptimeMinutes / 60)}h ${uptimeMinutes % 60}m`;
+    const available = settings.getNumber('worker_concurrency', 2);
+    const busy = deps.getQueue().runningCount();
 
+    // Shape mirrors client/src/types.ts SystemStatusInfo (previously it
+    // returned `server: 'ONLINE'`, `workers: 'x/y'`, string uptime — the UI
+    // never rendered correctly, LOW #25).
     const status = {
       server: 'ONLINE',
-      uptime: uptimeText,
-      uptimeMs,
+      uptime: uptimeMs,
       opencode,
-      database: 'HEALTHY',
-      scheduler: deps.getScheduler() ? 'RUNNING' : 'UNKNOWN',
-      workers: `${deps.getQueue().runningCount()}/${settings.getNumber('worker_concurrency', 2)}`,
+      database: true,
+      scheduler: deps.getScheduler() !== null,
+      workers: { available, busy },
       activeTasks: tasks.countByStatus()['running'] || 0,
       queuedTasks: tasks.countByStatus()['queued'] || 0,
       waitingApprovals: approvals.countPending(),

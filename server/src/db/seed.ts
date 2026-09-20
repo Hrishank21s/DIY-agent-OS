@@ -255,7 +255,8 @@ function seedSettings(db: Db): void {
   const defaults: [string, string][] = [
     ['server_name', 'AgentOS'],
     ['port', '3000'],
-    ['host', '0.0.0.0'],
+    // Loopback default; bind 0.0.0.0 only when LAN access is wanted.
+    ['host', '127.0.0.1'],
     ['timezone', 'UTC'],
     ['session_duration_minutes', '480'],
     ['opencode_path', ''],
@@ -264,9 +265,11 @@ function seedSettings(db: Db): void {
     ['task_timeout_ms', '600000'],
     ['worker_concurrency', '2'],
     ['login_rate_limit', '10'],
+    ['login_failed_attempts', '5'],
+    ['login_lockout_minutes', '15'],
     ['session_rate_limit', '100'],
     ['memory_auto_extract', '1'],
-    ['memory_importance_threshold', '0.3'],
+    ['memory_importance_threshold', '0.4'],
   ];
   const upsert = db.db.prepare(
     `INSERT INTO settings (key, value) VALUES (?, ?)

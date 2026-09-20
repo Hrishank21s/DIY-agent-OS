@@ -2,10 +2,17 @@
 
 ## Authentication
 
-- Logins are rate-limited per IP, and all routes run behind a global rate limit (default
-  `max: 500`, `timeWindow: '1 minute'`; auth paths have a stricter limit).
-- Passwords are hashed with Node's `crypto.scryptSync` (params N=32768, r=8, p=1) in
-  `scrypt$N$r$p$salt$hash` format. Per-user random salts.
+- Logins are rate-limited per IP (settings key `login_rate_limit`, default 10/min) and all routes
+  run behind a global rate limit (settings key `session_rate_limit`, default 100/min). After
+  `login_failed_attempts` (default 5) failed logins within a 15-minute window, the account is
+  locked out for `login_lockout_minutes` (default 15); failed attempts are recorded in a dedicated
+  `login_attempts` table.
+- Passwords are hashed with Node's `crypto.scryptSync`. New hashes use N=65536, r=8, p=1 (maxmem
+  128 MB) in `scrypt$N$r$p$salt$hash` format; older N=32768 hashes still verify (maxmem is derived
+  from the stored N). Per-user random salts.
+- Login comparison is timing-equalized: when the username is unknown the server still runs a full
+  scrypt verify against a dummy hash, so account enumeration is not distinguishable by timing.
+- Sessions are pruned to the 50 most recent per user on each login.
 - Bootstrap credentials come from `AGENTOS_BOOTSTRAP_USERNAME` (default `admin`) and
   `AGENTOS_BOOTSTRAP_PASSWORD`. In production the bootstrap password must be at least 8 characters
   and not one of the built-in weak passwords; otherwise a strong random password is generated and
@@ -16,8 +23,19 @@
   production mode, 480 minutes default). API clients may also authenticate with an
   `Authorization: Bearer <token>` header; `extractToken` accepts both. Production TLS is expected
   at your reverse proxy.
-- Helmet-based hardening headers: Content-Security-Policy (always on), no-sniff, click-jacking
-  protection, referrer policy, and HSTS when served over HTTPS.
+- Helmet-based hardening headers: Content-Security-Policy, no-sniff, click-jacking protection,
+  referrer policy, and HSTS when served over HTTPS. The CSP that ships by default includes
+  `upgrade-insecure-requests`; when the server binds plain HTTP (development), that directive would
+  make browsers rewrite every resource to https and blank the dashboard, so in that mode helmet CSP
+  is replaced with an equivalent header that omits the upgrade directive.
+
+## Proxy trust
+
+- `AGENTOS_TRUST_PROXY` controls trust in `X-Forwarded-*` headers used for client IP and the
+  loopback/Origin checks. Disabled (default) means forwarded headers are ignored. `1` (or `true`)
+  trusts the single nearest proxy hop — correct behind exactly one local reverse
+  proxy/proxy. Additional `N` trusts the *last N* hops' worth of forwarding entries. Only set this
+  behind a proxy you control; on a directly-exposed server any value re-enables spoofable client IPs.
 
 ## Cross-origin protection
 
@@ -39,6 +57,9 @@ holds for every execution. Key properties:
 - No shell: arguments are never concatenated into a shell string, so there is no shell-injection
   surface.
 - Risk classification happens before execution (`risk.ts`):
+  - Classification matches on the command **basename** (absolute paths like `/bin/rm` and
+    `/usr/bin/sudo` classify identically to the bare name), so the mandatory-approval gate cannot
+    be bypassed by invoking an absolute path.
   - A hard set (`MUST_APPROVE_COMMANDS`) — `sudo`, `rm`, `mount`/`umount`, `diskutil`, `kill`
     family, `dd`, `mkfs`, `fdisk`, `launchctl`, `iptables`, `passwd`, and others — always
     requires approval regardless of the agent's policy and cannot be overridden by an allow-rule.
@@ -54,6 +75,25 @@ holds for every execution. Key properties:
 
 Catalogs of executed commands are written to `command_logs` with the risk level and whether
 approval was required.
+
+## Settings-driven enforcement
+
+Several security-relevant knobs are enforced at run time from the `settings` table (and via the
+dashboard), not just advisory:
+
+- `approval_rules` — JSON allow-rules applied to every task execution unless a rule set is passed
+  explicitly for that run.
+- `task_timeout_ms` — per-task kill timeout; overrides arbitrary per-agent values when set.
+- `memory_importance_threshold` — floor at which extracted facts are stored as memory.
+- `login_rate_limit`, `session_rate_limit`, `login_failed_attempts`, `login_lockout_minutes` —
+  enforced by the login route and global rate-limiter as described above.
+
+## Environment inheritance
+
+Task subprocesses inherit the server's environment — any secret that must reach the model or its
+tools (e.g. `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) is read from the process/`launchd` environment,
+**not** from the database, and is accessible to the executed task. Only the values a task genuinely
+needs should be exported to the server process.
 
 ## OpenCode (in-task) boundary
 
@@ -81,13 +121,13 @@ unrelated binary with task prompts.
 - SQLite at `~/.agentos/agentos.db`. Keep `~/.agentos` mode 700 on a personal device.
 - `AGENTOS_DATA_DIR` relocates data (e.g. to an encrypted volume).
 - Do not expose the API to the public internet without a reverse proxy + HTTPS (Caddy/nginx) and a
-  firewall. The default bind is `0.0.0.0` for LAN convenience, which also exposes the server on any
-  network you are connected to; use `AGENTOS_HOST=127.0.0.1` when you do not need LAN access.
+  firewall. The default bind is loopback (`127.0.0.1`) for safety; set `AGENTOS_HOST=0.0.0.0` only
+  when you need LAN access, which also exposes the server on any network you are connected to.
 
 ## Known limitations
 
-- Single-user: one admin account. Rate limits and the forced password change mitigate brute force,
-  but this is not a multi-tenant design.
+- Single-user: one admin account. Rate limits, account lockout, and the forced password change
+  mitigate brute force, but this is not a multi-tenant design.
 - In the default architecture, a running task never pauses at `waiting_for_approval` on its own:
   tasks execute via the OpenCode CLI, and OpenCode either auto-rejects permission-gated tool calls
   or applies its own configured permissions. The platform-level approval state machine (pending →

@@ -1,6 +1,8 @@
 import { randomBytes, scryptSync, timingSafeEqual, createHash } from 'node:crypto';
 
-const SCRYPT_PARAMS = { N: 32768, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
+// N=65536 (~64MB) for NEW hashes; verifyPassword derives maxmem from the
+// stored N so existing 32768 hashes keep verifying fine (#32).
+const SCRYPT_PARAMS = { N: 65536, r: 8, p: 1, maxmem: 128 * 1024 * 1024 };
 const KEYLEN = 64;
 const PREFIX = 'scrypt$';
 

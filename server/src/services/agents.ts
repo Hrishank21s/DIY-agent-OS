@@ -119,15 +119,21 @@ export class AgentService {
     if (input.permissions) {
       this.setPermissions(id, input.permissions);
     }
-    const updated = this.get(id);
-    if (updated && updated.name !== existing.name) {
-      db.db.prepare('UPDATE tasks SET agent_id = ? WHERE agent_id = ?').run(updated.id, updated.id);
-    }
-    return updated;
+    return this.get(id);
   }
 
   delete(id: string): void {
     const db = getDb();
+    // Nullify loose references instead of leaving rows pointing at a deleted
+    // agent (agent_permissions still cascades via its FK) (#23).
+    for (const [table, col] of [
+      ['tasks', 'agent_id'],
+      ['automations', 'agent_id'],
+      ['approvals', 'agent_id'],
+      ['command_logs', 'agent_id'],
+    ] as const) {
+      db.db.prepare(`UPDATE ${table} SET ${col} = NULL WHERE ${col} = ?`).run(id);
+    }
     db.db.prepare('DELETE FROM agents WHERE id = ?').run(id);
   }
 

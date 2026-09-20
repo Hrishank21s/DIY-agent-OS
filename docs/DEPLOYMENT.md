@@ -49,7 +49,8 @@ Client dev server proxies `/api` and `/realtime` to `http://localhost:3000`.
 
 ## LAN access
 
-The server already binds `0.0.0.0`. From another device:
+The server binds loopback by default for safety. To expose it on your LAN, start with
+`AGENTOS_HOST=0.0.0.0`. From another device:
 
 ```
 http://<your-mac-ip>:3000
@@ -64,8 +65,8 @@ AGENTOS_PUBLIC_ORIGIN=http://<your-mac-ip>:3000
 ```
 
 The server also logs a warning at startup if it binds a non-loopback host without a configured
-origin. If macOS Firewall prompts, allow Node to accept incoming connections. To disable LAN access,
-start with `AGENTOS_HOST=127.0.0.1`.
+origin. If macOS Firewall prompts, allow Node to accept incoming connections. To disable LAN
+access again, start with `AGENTOS_HOST=127.0.0.1`.
 
 ## Reverse proxy (HTTPS, optional but recommended for LAN/WAN)
 
@@ -103,14 +104,14 @@ The plist runs the built server with logs at `~/Library/Logs/agentos-server.log`
 
 | Env var | Default | Meaning |
 | --- | --- | --- |
-| `AGENTOS_HOST` | `0.0.0.0` | Bind host |
+| `AGENTOS_HOST` | `127.0.0.1` | Bind host (loopback by default; `0.0.0.0` for LAN) |
 | `AGENTOS_PORT` | `3000` | Port |
 | `AGENTOS_DATA_DIR` | `~/.agentos` | Data root (contains `agentos.db`) |
 | `AGENTOS_OPENCODE_PATH` | from PATH | Absolute path to the `opencode` binary |
 | `AGENTOS_BOOTSTRAP_USERNAME` | `admin` | Bootstrap username |
 | `AGENTOS_BOOTSTRAP_PASSWORD` | — | Bootstrap password (random + printed once if unset/weak in production) |
 | `AGENTOS_RUNTIME_MODE` | prod unless `NODE_ENV`/`test` | `development` disables secure-only cookies |
-| `AGENTOS_TRUST_PROXY` | `false` | `true`/`1` trusts the reverse proxy for `X-Forwarded-*` |
+| `AGENTOS_TRUST_PROXY` | `false` | Number of trusted proxy hops (e.g. `1` behind one local reverse proxy); `false`/`0` disables `X-Forwarded-*` handling entirely |
 | `AGENTOS_PUBLIC_ORIGIN` | — | Public origin allowed for browser state-changing requests (required for non-loopback access, e.g. LAN) |
 | `AGENTOS_TRUSTED_ORIGINS` | — | Comma-separated extra origins allowed for browser requests |
 | `AGENTOS_APPROVAL_TIMEOUT_MS` | `86400000` | Approval expiry window (24h) |

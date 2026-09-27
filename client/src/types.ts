@@ -181,6 +181,7 @@ export interface SystemStatusInfo {
   server: string;
   uptime: number;
   opencode: { available: boolean; version: string | null; error?: string | null };
+  brain?: 'opencode' | 'antigravity';
   database: boolean;
   scheduler: boolean;
   workers: { available: number; busy: number };

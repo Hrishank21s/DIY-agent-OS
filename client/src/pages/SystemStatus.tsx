@@ -133,7 +133,7 @@ export default function SystemStatus() {
 
         <div className="card check-card">
           <div className="card-head">
-            <div className="card-title">OpenCode</div>
+            <div className="card-title">{status.brain === 'antigravity' ? 'Antigravity (Gemini CLI)' : 'OpenCode'}</div>
             <StatusBadge status={status.opencode.available ? 'online' : 'offline'} />
           </div>
           <div className="metric-line">

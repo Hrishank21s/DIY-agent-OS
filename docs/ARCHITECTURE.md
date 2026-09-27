@@ -13,7 +13,7 @@ a scheduler, and a React dashboard served from the same server. Storage is SQLit
                    │  static client/dist + SPA fallback           │
                    ├──────────────────────────────────────────────┤
                    │ TaskQueue worker (poll 1s, concurrency N)    │
-                   │   └ AgentWorker ──▶ OpenCodeExecutor ──▶ CLI  │
+                   │   └ AgentWorker ──▶ BrainExecutor ──▶ CLI    │
                    ├──────────────────────────────────────────────┤
                    │ Scheduler (interval / cron automations)      │
                    └──────────────────────────────────────────────┘
@@ -29,7 +29,7 @@ a scheduler, and a React dashboard served from the same server. Storage is SQLit
 | `services/auth.ts` | scrypt password hashing, password-change enforcement, rate limiting |
 | `services/tasks.ts` | Task CRUD, priority claim (`claimAvailable`), logs, crash recovery |
 | `services/risk.ts` | Command risk classification + mandatory-approval set + allow-rules |
-| `services/command.ts` | `CommandExecutor` — argv-spawn (no shell), approval gate, allow-rules. Reusable executor for integration-driven command runs; the default task path runs the OpenCode CLI directly (see below) |
+| `services/command.ts` | `CommandExecutor` — argv-spawn (no shell), approval gate, allow-rules. Reusable executor for integration-driven command runs; the default task path runs the selected brain CLI directly (see below) |
 | `services/approvals.ts` | Approval lifecycle (pending/approved/rejected) |
 | `services/agents.ts` | Agent registry + permission checks |
 | `services/memory.ts` | Memory storage + FTS5 retrieval + type extraction |
@@ -37,7 +37,8 @@ a scheduler, and a React dashboard served from the same server. Storage is SQLit
 | `services/automations.ts` | Interval/cron scheduling |
 | `services/audit.ts` | Append-only `audit_logs` |
 | `services/realtime.ts` | WebSocket event hub |
-| `executors/opencode.ts` | OpenCode CLI subprocess with request/result framing |
+| `executors/opencode.ts` | Brain CLI subprocess with request/result framing |
+| `executors/brains.ts` | Per-brain profile: argv, env, executable allowlist, NDJSON event parsing |
 | `workers/task-queue.ts` | Claim/poll orchestrator (protects against double-execution) |
 | `workers/agent-worker.ts` | Prompt composition (agent, project, notes, memories), run, cancel, memory extraction |
 
@@ -49,7 +50,7 @@ and `running → waiting_for_approval → (approve) queued → …` or `(reject)
 `waiting_for_approval` tasks left behind by a restart are recovered to `paused`; a later approval
 requeues them. Stale `running` tasks are recovered to `failed` with a message. (In the default
 architecture a task never pauses mid-run at `waiting_for_approval` on its own — see “In-task
-commands (OpenCode boundary)” below.)
+commands (brain boundary)” below.)
 
 ### Double-execution protection
 
@@ -78,15 +79,15 @@ Commands are executed with `spawn(argv[0], argv.slice(1), { shell: false })` —
 interpretation — with a hard timeout and `AGENTOS_TASK_ID` set in the environment.
 
 This executor is the platform-controlled command boundary. The default task worker does not use it:
-tasks run the OpenCode CLI directly (below). Approval-driven task UI/API flows are exercised at the
+tasks run the selected brain CLI directly (below). Approval-driven task UI/API flows are exercised at the
 service and route level by the test suite.
 
-## In-task commands (OpenCode boundary)
+## In-task commands (brain boundary)
 
-A task executes by running the OpenCode CLI on the composed prompt. Commands the model issues via
-its own tools are governed by OpenCode's own permission system, which in non-interactive mode
-auto-rejects tool calls that request permission (e.g. writing outside the working dir, external
-directories). This is the safest default: nothing dangerous runs without explicit consent, and the
+A task executes by running the selected brain CLI on the composed prompt. Commands the model
+issues via its own tools are governed by that CLI's own permission system, which refuses tool
+calls that request permission (e.g. writing outside the working dir, external directories) —
+OpenCode via `OPENCODE_NON_INTERACTIVE=1`, Antigravity via `--approval-mode default`. This is the safest default: nothing dangerous runs without explicit consent, and the
 model is instructed to stop and describe any sensitive action instead. Platform-level command
 execution (the approval gate above) is the AgentOS-controlled path. See SECURITY.md.
 

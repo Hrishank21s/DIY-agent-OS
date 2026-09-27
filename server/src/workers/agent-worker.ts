@@ -114,7 +114,7 @@ export class AgentWorker {
         return;
       }
       if (result.exitCode === 0 && !result.text && result.events.length === 0) {
-        const noResponseError = 'OpenCode exited successfully but returned no usable response';
+        const noResponseError = 'The AI brain exited successfully but returned no usable response';
         this.tasks.updateStatus(taskId, 'failed', { error: noResponseError, result: result.text });
         this.tasks.addLog(taskId, 'error', noResponseError, 'worker');
         emitTaskStatus(taskId, 'failed');

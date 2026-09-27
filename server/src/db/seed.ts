@@ -259,8 +259,13 @@ function seedSettings(db: Db): void {
     ['host', '127.0.0.1'],
     ['timezone', 'UTC'],
     ['session_duration_minutes', '480'],
+    ['brain', 'opencode'],
     ['opencode_path', ''],
     ['model', 'opencode/big-pickle'],
+    ['antigravity_path', ''],
+    // Blank means "let the Gemini CLI pick", rather than pinning a model id
+    // that ages out of the CLI.
+    ['antigravity_model', ''],
     ['working_dir', ''],
     ['task_timeout_ms', '600000'],
     ['worker_concurrency', '2'],

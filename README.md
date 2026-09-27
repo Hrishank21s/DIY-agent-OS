@@ -3,13 +3,13 @@
 # AgentOS
 
 **Self-hosted personal AI agent platform for macOS**
-Built with Fastify + TypeScript, React + Vite, SQLite, and the OpenCode CLI as a replaceable AI brain.
+Built with Fastify + TypeScript, React + Vite, SQLite, and a swappable CLI brain — OpenCode or Google's Gemini CLI.
 
 ![Platform macOS](https://img.shields.io/badge/platform-macOS-333333?style=flat&logo=apple&logoColor=white)
 ![Node](https://img.shields.io/badge/node-%3E%3D22.5-success?style=flat&logo=node.js&logoColor=white&color=339933)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.5-3178C6?style=flat&logo=typescript&logoColor=white)
 ![React](https://img.shields.io/badge/React-18-61DAFB?style=flat&logo=react&logoColor=black)
-![Tests](https://img.shields.io/badge/tests-109%20passing-brightgreen?style=flat)
+![Tests](https://img.shields.io/badge/tests-115%20passing-brightgreen?style=flat)
 ![License](https://img.shields.io/badge/license-MIT-blue?style=flat)
 
 </div>
@@ -19,14 +19,17 @@ Built with Fastify + TypeScript, React + Vite, SQLite, and the OpenCode CLI as a
 ## What is AgentOS?
 
 AgentOS turns your Mac into a **self-hosted AI agent team**. It runs a Fastify backend and a
-React dashboard in a single Node process, with SQLite storage and the OpenCode CLI as the
-execution brain. Seed a few agents — General, Coder, Analyst, Scheduler — or build your own, then
+React dashboard in a single Node process, with SQLite storage and a CLI agent as the execution
+brain — pick **OpenCode** or **Antigravity** (Google's Gemini CLI) in Settings. Seed a few agents — General, Coder, Analyst, Scheduler — or build your own, then
 queue tasks, approve risky commands, collect long-term memory, and automate recurring work.
 
 Everything is yours: single-user by design, no cloud dependency, data lives in `~/.agentos`.
 
 ## Key features
 
+- **Swappable brain** — choose OpenCode or Antigravity (Gemini CLI) in **Settings → AI Brain**.
+  Each brain keeps its own executable path, model, argv and stream parser, and the switch takes
+  effect on the next task without restarting the server.
 - **Multi-agent runtime** — seed agents plus custom agents with per-agent system prompts,
   models, permissions, timeouts, and approval policies (`safe | low | medium | high |
   always_require_approval`).
@@ -52,10 +55,11 @@ Everything is yours: single-user by design, no cloud dependency, data lives in `
 
 ## How a task runs
 
-A task is executed by running the OpenCode CLI on a composed prompt (agent system prompt +
+A task is executed by running the selected brain CLI on a composed prompt (agent system prompt +
 project context + notes + relevant memories). Commands the model issues through its own tools are
-governed by OpenCode's permission system, which in non-interactive mode **auto-rejects** tool calls
-that request permission. The platform-level approval gate is the AgentOS-controlled path for
+governed by that CLI's permission system, which **refuses** tool calls that request permission —
+OpenCode via `OPENCODE_NON_INTERACTIVE=1`, Antigravity via `--approval-mode default`. AgentOS
+never passes `--yolo`. The platform-level approval gate is the AgentOS-controlled path for
 integration-driven commands. See `docs/SECURITY.md` for the exact boundaries.
 
 ## Architecture
@@ -67,7 +71,7 @@ integration-driven commands. See `docs/SECURITY.md` for the exact boundaries.
                     │  static client/dist + SPA fallback           │
                     ├──────────────────────────────────────────────┤
                     │ TaskQueue worker (poll 1s, concurrency N)    │
-                    │   └ AgentWorker ──▶ OpenCodeExecutor ──▶ CLI  │
+                    │   └ AgentWorker ──▶ BrainExecutor ──▶ CLI     │
                     ├──────────────────────────────────────────────┤
                     │ Scheduler (interval / cron automations)      │
                     └──────────────────────────────────────────────┘
@@ -79,7 +83,9 @@ events.
 
 ## Quickstart
 
-Requirements: **Node >= 22.5** (tested on 26), the **OpenCode CLI**, and a model provider.
+Requirements: **Node >= 22.5** (tested on 26) and one brain CLI — the **OpenCode CLI** plus a
+model provider (the default), or the **Gemini CLI** with `GEMINI_API_KEY` exported for the
+Antigravity brain, since headless Gemini cannot use a browser login.
 
 ```bash
 npm install
@@ -111,7 +117,7 @@ AGENTOS_PUBLIC_ORIGIN=http://<your-mac-ip>:3000
 ```bash
 npm install
 npm run dev        # server + client with hot reload
-npm test           # 100 tests across server + client
+npm test           # 115 tests across server + client
 npm run lint       # eslint for both workspaces
 npm run typecheck  # tsc for both workspaces
 npm run doctor     # server health checks
@@ -161,7 +167,8 @@ request — tests must pass.
 - [x] Real-time dashboard
 - [ ] Docker containerization
 - [ ] Multi-user / team support
-- [ ] More executors beyond OpenCode CLI
+- [x] Swappable brain (OpenCode · Antigravity / Gemini CLI)
+- [ ] More executors beyond CLI subprocesses
 
 ## License
 

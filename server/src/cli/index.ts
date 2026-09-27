@@ -5,6 +5,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { getDb } from '../db/index.js';
 import { resetBootstrapUser } from '../db/seed.js';
+import { BRAINS, asBrainId, detectBrain, type BrainId } from '../executors/brains.js';
 
 const PID_FILE = path.join(config.dataDir, 'agentos.pid');
 const LOG_FILE = path.join(config.dataDir, 'agentos.log');
@@ -108,10 +109,19 @@ export function cliDoctor(): Promise<number> {
     ok = false;
   }
 
-  // SQLite via node:sqlite
+  // SQLite via node:sqlite. The brain rows are read here, while the handle is
+  // open, so the check below reports the CLI that is actually selected.
+  let brainId: BrainId = 'opencode';
+  let configuredPath = '';
   try {
     const d = getDb();
     d.db.prepare('SELECT 1').get();
+    const read = (key: string) =>
+      (d.db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as
+        | { value: string }
+        | undefined)?.value;
+    brainId = asBrainId(read('brain'));
+    configuredPath = read(BRAINS[brainId].pathSetting)?.trim() || '';
     console.log('✓ SQLite: OK (node:sqlite)');
     d.close();
   } catch (e) {
@@ -119,13 +129,15 @@ export function cliDoctor(): Promise<number> {
     ok = false;
   }
 
-  // OpenCode executable
+  // Selected AI brain executable
+  const brain = BRAINS[brainId];
+  const brainBin = configuredPath || detectBrain(brain);
   try {
-    const out = runCmd(config.opencodePath, ['--version']);
-    console.log(`✓ OpenCode: ${out.trim()}`);
+    const out = runCmd(brainBin, ['--version']);
+    console.log(`✓ ${brain.label}: ${out.trim()}`);
   } catch {
-    console.log(`✗ OpenCode: not found at '${config.opencodePath}'`);
-    console.log('  Set AGENTOS_OPENCODE_PATH or the Settings > OpenCode path.');
+    console.log(`✗ ${brain.label}: not found at '${brainBin}'`);
+    console.log(`  Set ${brain.pathEnv} or the path in Settings > AI Brain.`);
     ok = false;
   }
 

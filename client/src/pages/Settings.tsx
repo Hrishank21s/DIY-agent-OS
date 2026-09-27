@@ -7,6 +7,7 @@ import {
   InlineError,
   LoadingBlock,
   PageHeader,
+  SelectField,
   TextField,
   TimeText,
 } from '../components/Ui';
@@ -16,7 +17,7 @@ type SettingsTab = 'general' | 'auth' | 'opencode' | 'agents' | 'memory' | 'secu
 const TABS: { value: SettingsTab; label: string }[] = [
   { value: 'general', label: 'General' },
   { value: 'auth', label: 'Authentication' },
-  { value: 'opencode', label: 'OpenCode' },
+  { value: 'opencode', label: 'AI Brain' },
   { value: 'agents', label: 'Agents' },
   { value: 'memory', label: 'Memory' },
   { value: 'security', label: 'Security' },
@@ -37,8 +38,11 @@ export default function Settings() {
   const [general, setGeneral] = useState({ server_name: '', timezone: '' });
   const [auth, setAuth] = useState({ username: '', newPassword: '', sessionDurationMinutes: '1440' });
   const [opencode, setOpencode] = useState({
+    brain: 'opencode',
     opencode_path: '',
     model: '',
+    antigravity_path: '',
+    antigravity_model: '',
     working_dir: '',
     task_timeout_ms: '600000',
   });
@@ -64,8 +68,11 @@ export default function Settings() {
           sessionDurationMinutes: String(s.session_duration_minutes ?? s.sessionDurationMinutes ?? 1440),
         });
         setOpencode({
+          brain: s.brain === 'antigravity' ? 'antigravity' : 'opencode',
           opencode_path: String(s.opencode_path ?? ''),
           model: String(s.model ?? ''),
+          antigravity_path: String(s.antigravity_path ?? ''),
+          antigravity_model: String(s.antigravity_model ?? ''),
           working_dir: String(s.working_dir ?? ''),
           task_timeout_ms: String(s.task_timeout_ms ?? s.task_timeout ?? 600000),
         });
@@ -137,8 +144,11 @@ export default function Settings() {
     setSaveError('');
     try {
       await api.put<{ ok: boolean }>('/settings/opencode', {
+        brain: opencode.brain,
         opencode_path: opencode.opencode_path || undefined,
         model: opencode.model || undefined,
+        antigravity_path: opencode.antigravity_path || undefined,
+        antigravity_model: opencode.antigravity_model || undefined,
         working_dir: opencode.working_dir || undefined,
         task_timeout_ms: Number(opencode.task_timeout_ms) || undefined,
       });
@@ -300,18 +310,46 @@ export default function Settings() {
 
           {tab === 'opencode' && (
             <div className="form-grid settings-form">
-              <TextField
-                label="OpenCode path"
-                value={opencode.opencode_path}
-                onChange={(v) => setOpencode({ ...opencode, opencode_path: v })}
-                placeholder="/usr/local/bin/opencode"
+              <SelectField
+                label="AI brain"
+                value={opencode.brain}
+                onChange={(v) => setOpencode({ ...opencode, brain: v })}
+                options={[
+                  { value: 'opencode', label: 'OpenCode' },
+                  { value: 'antigravity', label: 'Antigravity (Gemini CLI)' },
+                ]}
               />
-              <TextField
-                label="Model"
-                value={opencode.model}
-                onChange={(v) => setOpencode({ ...opencode, model: v })}
-                placeholder="opencode/big-pickle"
-              />
+              {opencode.brain === 'opencode' ? (
+                <>
+                  <TextField
+                    label="OpenCode path"
+                    value={opencode.opencode_path}
+                    onChange={(v) => setOpencode({ ...opencode, opencode_path: v })}
+                    placeholder="/usr/local/bin/opencode"
+                  />
+                  <TextField
+                    label="Model"
+                    value={opencode.model}
+                    onChange={(v) => setOpencode({ ...opencode, model: v })}
+                    placeholder="opencode/big-pickle"
+                  />
+                </>
+              ) : (
+                <>
+                  <TextField
+                    label="Gemini CLI path"
+                    value={opencode.antigravity_path}
+                    onChange={(v) => setOpencode({ ...opencode, antigravity_path: v })}
+                    placeholder="/opt/homebrew/bin/gemini"
+                  />
+                  <TextField
+                    label="Model"
+                    value={opencode.antigravity_model}
+                    onChange={(v) => setOpencode({ ...opencode, antigravity_model: v })}
+                    placeholder="leave blank for the CLI default"
+                  />
+                </>
+              )}
               <TextField
                 label="Working directory"
                 value={opencode.working_dir}

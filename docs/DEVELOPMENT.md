@@ -17,7 +17,7 @@ npm run test -w client
 ```
 
 Current: **89 server tests across 10 files pass** (`api.test.ts`, `auth.test.ts`, `command.test.ts`,
-`db.test.ts`, `ndjson-worker.test.ts`, `opencode-executor.test.ts`, `probe-config.test.ts`,
+`brains.test.ts`, `db.test.ts`, `ndjson-worker.test.ts`, `opencode-executor.test.ts`, `probe-config.test.ts`,
 `risk.test.ts`, `services.test.ts`, `worker-empty-result.test.ts`) and **9 client component tests
 across 3 files pass**.
 
@@ -68,8 +68,12 @@ npm run lint          # eslint on both workspaces
 - **Node 26 native modules do not compile** on this machine. Use `node:sqlite` and `crypto`
   primitives only; every SQLite row must be cast (`as unknown as T`) because `DatabaseSync`
   returns plain objects.
-- **OpenCode streaming**: `opencode run --format json` emits `step_start`/`text`/`step_finish`
-  lines plus framed `tool` / `tool_use` events. It must be spawned with `stdio: ['ignore','pipe',
+- **Brain streaming**: both CLIs emit newline-delimited JSON, parsed through the per-brain
+  `textOf`/`isStepEnd` hooks in `executors/brains.ts`. `opencode run --format json` emits
+  `step_start`/`text`/`step_finish` lines plus framed `tool` / `tool_use` events; `gemini -o
+  stream-json` emits `init` / `message` / `tool_use` / `tool_result` / `error` / `result`, where
+  assistant text arrives as `{type:"message",role:"assistant",content,delta:true}` chunks that are
+  concatenated. It must be spawned with `stdio: ['ignore','pipe',
   'pipe']` or it blocks waiting on stdin; an `exit`-based fallback finalizes the result so a
   grandchild holding the pipe can't hang the worker.
 

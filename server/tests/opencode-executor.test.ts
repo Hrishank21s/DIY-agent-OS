@@ -44,12 +44,6 @@ describe('OpenCodeExecutor', () => {
     expect(typeof info.version).toBe('string' || 'undefined');
   });
 
-  it('lists models', async () => {
-    const executor = createExecutor();
-    const models = await executor.getModels();
-    expect(Array.isArray(models)).toBe(true);
-  });
-
   it(
     'runs a short task and returns text (skipped if OpenCode unavailable)',
     async () => {

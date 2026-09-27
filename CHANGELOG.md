@@ -8,6 +8,12 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Swappable AI brain**: choose OpenCode or Antigravity (Google's Gemini CLI) in
+  **Settings → AI Brain**. `executors/brains.ts` holds a per-brain profile — argv, env, executable
+  allowlist and NDJSON stream parsing — so the rest of the app is brain-agnostic
+- Per-brain settings `brain`, `antigravity_path`, and `antigravity_model`; the model is stored per
+  brain so switching never hands an OpenCode model id to Gemini
+- `AGENTOS_ANTIGRAVITY_PATH` env var for the Gemini binary
 - MIT license
 - `CONTRIBUTING.md` with contribution guidelines
 - GitHub issue templates (bug report, feature request) and pull request template
@@ -18,8 +24,19 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - CI workflow running typecheck + tests on Node 22 and 24
 - `engines` constraint `node >= 22.5` on both workspaces and a `doctor` check
 
+### Removed
+
+- Dead `OpenCodeExecutor.getModels()` — it was never called by the server or the client
+
 ### Changed
 
+- The executable allowlist is per brain (`opencode` / `gemini`) and is checked against the brain
+  that is currently selected
+- The brain executable is resolved per run instead of being cached in the executor constructor, so
+  switching brains takes effect without restarting the server
+- `doctor` reports the selected brain's CLI instead of always probing OpenCode
+- Brain env vars are applied after caller-supplied env, so `OPENCODE_NON_INTERACTIVE` can no longer
+  be overridden by a caller
 - Server binds `127.0.0.1` by default; set `AGENTOS_HOST=0.0.0.0` explicitly for LAN access
 - New scrypt hashes use N=65536; older N=32768 hashes still verify
 - Login is timing-equalized against a dummy hash and sessions are pruned to the 50 most recent

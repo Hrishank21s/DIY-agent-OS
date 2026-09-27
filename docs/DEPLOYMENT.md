@@ -3,11 +3,16 @@
 ## Dependencies
 
 - Node.js >= 22 (tested on 26) with built-in `node:sqlite`
-- The OpenCode CLI, discoverable on `PATH` as `opencode` (or set `opencode_path` in settings)
-- A model provider for OpenCode (e.g. `opencode/big-pickle`) — the model is configurable per agent
+- One brain CLI, selected in **Settings → AI Brain**:
+  - **OpenCode** (default) — on `PATH` as `opencode`, or set `opencode_path` in settings. Needs a
+    model provider (e.g. `opencode/big-pickle`); the model is configurable per agent.
+  - **Antigravity** — Google's Gemini CLI on `PATH` as `gemini`, or set `antigravity_path`. The
+    Antigravity IDE itself ships no headless binary, so the Gemini CLI is the executable AgentOS
+    spawns. It must be authenticated non-interactively: export `GEMINI_API_KEY` in the server's
+    environment, since a browser login does not carry into a headless run.
 
-Only binaries named `opencode` are accepted as the executor; a path with any other basename is
-ignored at runtime (see SECURITY.md).
+Each brain has its own executable allowlist (`opencode` / `gemini`); a path with any other
+basename is ignored at runtime (see SECURITY.md).
 
 Check everything with the doctor:
 
@@ -89,15 +94,16 @@ scripts/uninstall-launchd.sh  # remove it
 ```
 
 The plist runs the built server with logs at `~/Library/Logs/agentos-server.log` and
-`~/.agentos/*.log` style rotation. If `opencode` is not on launchd's PATH, set the
-`AGENTOS_OPENCODE_PATH` env var (the plist supports it) or use an absolute path in settings.
+`~/.agentos/*.log` style rotation. If the brain CLI is not on launchd's PATH, set the
+`AGENTOS_OPENCODE_PATH` / `AGENTOS_ANTIGRAVITY_PATH` env var (the plist supports it) or use an
+absolute path in settings.
 
 ## Restart behavior
 
 - Stale `running` tasks → marked `failed` ("Server restarted while task was in progress").
 - Stale `waiting_for_approval` tasks → marked `paused`; approving them afterwards requeues and
   runs them.
-- In-flight OpenCode subprocesses are not killed by the launchd job automatically; orphaned CLI
+- In-flight brain subprocesses are not killed by the launchd job automatically; orphaned CLI
   processes are harmless (they cannot write anything they were not already allowed to).
 
 ## Config surface (env)
@@ -108,6 +114,8 @@ The plist runs the built server with logs at `~/Library/Logs/agentos-server.log`
 | `AGENTOS_PORT` | `3000` | Port |
 | `AGENTOS_DATA_DIR` | `~/.agentos` | Data root (contains `agentos.db`) |
 | `AGENTOS_OPENCODE_PATH` | from PATH | Absolute path to the `opencode` binary |
+| `AGENTOS_ANTIGRAVITY_PATH` | from PATH | Absolute path to the `gemini` binary (Antigravity brain) |
+| `GEMINI_API_KEY` | — | Required by the Antigravity brain; headless Gemini cannot use a browser login |
 | `AGENTOS_BOOTSTRAP_USERNAME` | `admin` | Bootstrap username |
 | `AGENTOS_BOOTSTRAP_PASSWORD` | — | Bootstrap password (random + printed once if unset/weak in production) |
 | `AGENTOS_RUNTIME_MODE` | prod unless `NODE_ENV`/`test` | `development` disables secure-only cookies |

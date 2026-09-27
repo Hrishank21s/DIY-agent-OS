@@ -37,7 +37,6 @@ function makeAgent(overrides: Partial<Agent> = {}): Agent {
 function makeMockExecutor(runResult: OpenCodeResult): OpenCodeExecutor {
   return {
     isAvailable: vi.fn().mockResolvedValue({ available: true, version: '1.18.30' }),
-    getModels: vi.fn().mockResolvedValue(['opencode/big-pickle']),
     run: vi.fn().mockResolvedValue({
       result: runResult,
       controller: { cancel: vi.fn(), pid: 12345 } as ExecutorController,
@@ -170,7 +169,7 @@ describe('AgentWorker empty-result detection', () => {
     expect(failedCall).toBeDefined();
     expect(failedCall![0]).toBe('task_test_1');
     expect(failedCall![2]).toMatchObject({
-      error: 'OpenCode exited successfully but returned no usable response',
+      error: 'The AI brain exited successfully but returned no usable response',
     });
   });
 

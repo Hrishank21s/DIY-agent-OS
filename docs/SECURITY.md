@@ -95,26 +95,47 @@ tools (e.g. `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) is read from the process/`lau
 **not** from the database, and is accessible to the executed task. Only the values a task genuinely
 needs should be exported to the server process.
 
-## OpenCode (in-task) boundary
+## Brain (in-task) boundary
 
-Tasks run the OpenCode CLI on a composed prompt. OpenCode has its own permission model: in
-non-interactive mode a tool call that would need permission is **auto-rejected** (nothing
-executes). This is the default even for a "high"-policy agent. Consequences:
+Tasks run the selected brain CLI on a composed prompt. Each CLI has its own permission model, and
+in both cases a tool call that would need permission is **not** executed unattended. This is the
+default even for a "high"-policy agent. Consequences:
 
 - An agent can reason, read its assigned working directory, and reply; it cannot perform sensitive
-  actions unless you extend OpenCode permissions (e.g. an `opencode.json` in the working directory
-  granting specific tools within it).
+  actions unless you extend the CLI's permissions (e.g. an `opencode.json` in the working
+  directory granting specific tools within it).
 - Sensitive actions should be surfaced as text; the platform-level approval flow is the sanctioned
   way to approve a specific action.
-- Tool calls executed by OpenCode with broader permissions do **not** pass through
-  `CommandExecutor`; keep any per-directory OpenCode permission scope as narrow as possible.
+- Tool calls executed by the brain with broader permissions do **not** pass through
+  `CommandExecutor`; keep any per-directory CLI permission scope as narrow as possible.
+
+Per brain:
+
+- **OpenCode** — spawned with `OPENCODE_NON_INTERACTIVE=1`, where a permission-gated tool call is
+  auto-rejected.
+- **Antigravity (Gemini CLI)** — spawned with `--approval-mode default`, which is the equivalent
+  gate. AgentOS never passes `--yolo`/`-y`, which would auto-approve every tool call and remove
+  this boundary entirely.
+
+Brain env vars are applied *after* any caller-supplied env, so these flags cannot be dropped by a
+caller.
+
+### Workspace trust (Antigravity only)
+
+Headless Gemini refuses to run in a directory the user has not trusted interactively, and AgentOS
+chooses the working directory itself, so the worker passes `--skip-trust` on every Antigravity
+run. This means a `.gemini/` config inside a task's working directory is trusted implicitly. Only
+queue tasks against directories you control; if you need untrusted working directories, make the
+flag conditional on a per-path setting (marked `ponytail:` in `server/src/executors/brains.ts`).
 
 ## Executable allowlist
 
-Only binaries whose basename is `opencode` (or `opencode.exe`) are accepted as the model-executor
-binary. A configured `AGENTOS_OPENCODE_PATH` or `opencode_path` setting pointing at any other
-executable is ignored at run time (with a warning), so the worker cannot be made to execute an
-unrelated binary with task prompts.
+Each brain carries its own basename allowlist — `opencode`/`opencode.exe` for OpenCode,
+`gemini`/`gemini.exe` for Antigravity — and a path is checked against the allowlist of the brain
+that is *currently selected*. A configured `AGENTOS_OPENCODE_PATH`, `AGENTOS_ANTIGRAVITY_PATH`,
+`opencode_path`, or `antigravity_path` pointing at any other executable is ignored at run time
+(with a warning), so the worker cannot be made to execute an unrelated binary with task prompts,
+and an OpenCode path cannot be smuggled in while Antigravity is selected.
 
 ## Data at rest
 
@@ -129,8 +150,8 @@ unrelated binary with task prompts.
 - Single-user: one admin account. Rate limits, account lockout, and the forced password change
   mitigate brute force, but this is not a multi-tenant design.
 - In the default architecture, a running task never pauses at `waiting_for_approval` on its own:
-  tasks execute via the OpenCode CLI, and OpenCode either auto-rejects permission-gated tool calls
-  or applies its own configured permissions. The platform-level approval state machine (pending →
+  tasks execute via the selected brain CLI, which either refuses permission-gated tool calls or
+  applies its own configured permissions. The platform-level approval state machine (pending →
   approved/rejected, expiry, task requeue/fail, audit, realtime events) is fully implemented,
   unit-tested, and API-tested.
 - Cross-origin protection relies on the `SameSite=Strict` cookie plus the Origin check described

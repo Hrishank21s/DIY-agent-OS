@@ -1,4 +1,5 @@
 import { getDb } from '../db/index.js';
+import { BRAINS, asBrainId, type BrainId } from '../executors/brains.js';
 
 const SECURE_KEYS = new Set(['password_hash']);
 
@@ -45,12 +46,23 @@ export class SettingsService {
     return out;
   }
 
+  /** Which CLI the worker spawns as its brain. */
+  get brain(): BrainId {
+    return asBrainId(this.get('brain'));
+  }
+
   get configuredModel(): string {
-    return this.get('model') || 'opencode/big-pickle';
+    const brain = BRAINS[this.brain];
+    return this.get(brain.modelSetting) || brain.defaultModel;
+  }
+
+  /** Configured executable path for a brain (blank falls back to detection). */
+  brainPath(id: BrainId): string {
+    return this.get(BRAINS[id].pathSetting) || '';
   }
 
   get opencodePath(): string {
-    return this.get('opencode_path') || '';
+    return this.brainPath('opencode');
   }
 
   get workingDir(): string {

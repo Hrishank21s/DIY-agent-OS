@@ -4,6 +4,7 @@ import { SettingsService } from '../services/settings.js';
 import { AgentService } from '../services/agents.js';
 import { Logger } from '../lib/logger.js';
 import { config, isAllowedOpenCodePath } from '../config.js';
+import { BRAINS, detectBrain, type BrainProfile } from './brains.js';
 
 /** Cap unbounded result text/events so a runaway model cannot OOM the server (#18). */
 export const MAX_RESULT_TEXT = 200_000;
@@ -55,7 +56,6 @@ export interface ExecutorController {
 export interface OpenCodeExecutor {
   isAvailable(): Promise<{ available: boolean; version?: string; error?: string }>;
   run(opts: RunOptions): Promise<{ result: OpenCodeResult; controller: ExecutorController }>;
-  getModels(): Promise<string[]>;
 }
 
 /**
@@ -70,39 +70,44 @@ export class OpenCodeCliExecutor implements OpenCodeExecutor {
   private settings: SettingsService;
   private agents: AgentService;
   private log: Logger;
-  private opencodePath: string;
 
   constructor() {
     this.settings = new SettingsService();
     this.agents = new AgentService();
     this.log = new Logger();
-    this.opencodePath = this.resolveExecutable();
   }
 
-  private resolveExecutable(): string {
-    const fromEnv = process.env.AGENTOS_OPENCODE_PATH?.trim();
+  /**
+   * Resolved per call, not cached in the constructor, so switching the brain
+   * in Settings takes effect without restarting the server.
+   */
+  private resolveBrain(): { brain: BrainProfile; bin: string } {
+    const brain = BRAINS[this.settings.brain];
+    const fromEnv = process.env[brain.pathEnv]?.trim();
     let candidate: string | null = null;
     if (fromEnv) {
-      // Runtime override; matches detectOpenCode() priority so config module
+      // Runtime override; matches detectBrain() priority so config module
       // caching in tests cannot pin the executor to the installed binary.
       candidate = fromEnv;
     } else {
-      const fromSettings = this.settings.opencodePath?.trim();
+      const fromSettings = this.settings.brainPath(brain.id)?.trim();
       if (fromSettings) candidate = fromSettings;
     }
-    const resolved = candidate && isAllowedOpenCodePath(candidate) ? candidate : config.opencodePath;
-    if (isAllowedOpenCodePath(resolved)) return resolved;
-    this.log.warn('system', "OpenCode path is not an allowed executable; falling back to 'opencode' on PATH", {
+    const detected = brain.id === 'opencode' ? config.opencodePath : detectBrain(brain);
+    const resolved = candidate && isAllowedOpenCodePath(candidate, brain.id) ? candidate : detected;
+    if (isAllowedOpenCodePath(resolved, brain.id)) return { brain, bin: resolved };
+    this.log.warn('system', `${brain.label} path is not an allowed executable; falling back to PATH`, {
       path: resolved,
     });
-    return 'opencode';
+    return { brain, bin: brain.basenames[0] };
   }
 
   async isAvailable(): Promise<{ available: boolean; version?: string; error?: string }> {
+    const { bin } = this.resolveBrain();
     return new Promise(resolve => {
       let child;
       try {
-        child = spawn(this.opencodePath, ['--version'], { shell: false, stdio: ['ignore', 'pipe', 'pipe'] });
+        child = spawn(bin, ['--version'], { shell: false, stdio: ['ignore', 'pipe', 'pipe'] });
       } catch (err) {
         resolve({ available: false, error: (err as Error).message });
         return;
@@ -124,47 +129,16 @@ export class OpenCodeCliExecutor implements OpenCodeExecutor {
     });
   }
 
-  async getModels(): Promise<string[]> {
-    return new Promise(resolve => {
-      let child;
-      try {
-        child = spawn(this.opencodePath, ['models'], { shell: false, stdio: ['ignore', 'pipe', 'pipe'] });
-      } catch {
-        resolve([]);
-        return;
-      }
-      let out = '';
-      child.stdout?.on('data', d => (out += d.toString()));
-      child.on('error', () => resolve([]));
-      child.on('close', () => {
-        const lines = out.split('\n').map(l => l.trim()).filter(Boolean);
-        resolve(lines);
-      });
-    });
-  }
-
   run(opts: RunOptions): Promise<{ result: OpenCodeResult; controller: ExecutorController }> {
-    const args = ['run', '--format', 'json'];
-    const model = opts.model || this.settings.configuredModel;
-    if (model) {
-      args.push('--model', model);
-    }
+    const { brain, bin } = this.resolveBrain();
     const agentModel = opts.agent ? this.agents.getByName(opts.agent)?.model : null;
-    if (agentModel) {
-      // Prefer agent-specified model when present
-      const idx = args.indexOf('--model');
-      if (idx !== -1) {
-        args[idx + 1] = agentModel;
-      } else {
-        args.push('--model', agentModel);
-      }
-    }
-    if (opts.cwd) {
-      args.push('--dir', opts.cwd);
-    }
-    // Add the prompt as positional arguments (avoids shell interpretation)
-    // opencode run accepts the message as trailing positionals
-    args.push(opts.prompt);
+    // ponytail: per-agent models are stored as OpenCode model ids, so they are
+    // only applied to the OpenCode brain — handing `opencode/big-pickle` to
+    // Gemini just errors. Add a per-brain agent model column if agents need
+    // their own Gemini models.
+    const model =
+      (brain.id === 'opencode' && agentModel) || opts.model || this.settings.configuredModel;
+    const args = brain.buildArgs({ prompt: opts.prompt, model: model || undefined, cwd: opts.cwd });
 
     const result: OpenCodeResult = {
       text: '',
@@ -197,7 +171,7 @@ export class OpenCodeCliExecutor implements OpenCodeExecutor {
 
       let timer: NodeJS.Timeout;
       try {
-        child = spawn(this.opencodePath, args, {
+        child = spawn(bin, args, {
           shell: false,
           stdio: ['ignore', 'pipe', 'pipe'],
           cwd: opts.cwd || undefined,
@@ -206,7 +180,9 @@ export class OpenCodeCliExecutor implements OpenCodeExecutor {
           env: {
             ...process.env,
             ...(opts.env || {}),
-            OPENCODE_NON_INTERACTIVE: '1',
+            // Last, so a caller-supplied env can never drop the brain's
+            // non-interactive flags.
+            ...brain.extraEnv,
           },
         }) as unknown as ChildProcessWithoutNullStreams;
       } catch (err) {
@@ -247,14 +223,13 @@ export class OpenCodeCliExecutor implements OpenCodeExecutor {
           return;
         }
         result.events.push(evt);
-        const evtPart = (evt as OpenCodeEvent & { part?: { text?: unknown } }).part;
-        const textContent = evtPart?.text ?? evt.text;
-        if (evt.type === 'text' && typeof textContent === 'string') {
+        const textContent = brain.textOf(evt as Record<string, unknown>);
+        if (textContent !== undefined) {
           result.text += textContent;
           if (opts.onEvent) opts.onEvent(evt);
           if (opts.onStdout) opts.onStdout(textContent);
         }
-        if (evt.type === 'step_finish') {
+        if (brain.isStepEnd(evt as Record<string, unknown>)) {
           if (opts.onEvent) opts.onEvent(evt);
         }
       });

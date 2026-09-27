@@ -23,8 +23,11 @@ const updateGeneralSchema = z.object({
 });
 
 const updateOpencodeSchema = z.object({
+  brain: z.enum(['opencode', 'antigravity']).optional(),
   opencode_path: z.string().max(2000).optional(),
   model: z.string().max(200).optional(),
+  antigravity_path: z.string().max(2000).optional(),
+  antigravity_model: z.string().max(200).optional(),
   working_dir: z.string().max(2000).optional(),
   task_timeout_ms: z.number().int().min(5000).max(86400000).optional(),
 });
@@ -79,7 +82,7 @@ export function settingsRoutes(app: FastifyInstance): void {
     for (const [k, v] of Object.entries(parsed.data)) {
       if (v !== undefined) settings.set(k, typeof v === 'number' ? String(v) : v);
     }
-    log.info('settings', 'OpenCode settings updated');
+    log.info('settings', 'Brain settings updated', { brain: settings.brain });
     return { ok: true };
   });
 

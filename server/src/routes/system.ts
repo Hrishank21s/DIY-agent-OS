@@ -37,6 +37,7 @@ export function systemRoutes(app: FastifyInstance, deps: SystemDeps): void {
       server: 'ONLINE',
       uptime: uptimeMs,
       opencode,
+      brain: settings.brain,
       database: true,
       scheduler: deps.getScheduler() !== null,
       workers: { available, busy },

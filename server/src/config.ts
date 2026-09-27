@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { BRAINS, detectBrain, type BrainId } from './executors/brains.js';
 
 dotenv.config();
 
@@ -25,37 +26,19 @@ const dataDir = resolveDataDir();
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 function detectOpenCode(): string {
-  if (process.env.AGENTOS_OPENCODE_PATH) return process.env.AGENTOS_OPENCODE_PATH;
-  const candidates = [
-    path.join(os.homedir(), '.opencode', 'bin', 'opencode'),
-    path.join(os.homedir(), '.local', 'bin', 'opencode'),
-    '/usr/local/bin/opencode',
-    '/opt/homebrew/bin/opencode',
-    '/usr/bin/opencode',
-  ];
-  for (const c of candidates) {
-    try {
-      fs.accessSync(c, fs.constants.X_OK);
-      return c;
-    } catch {}
-  }
-  return 'opencode';
+  return detectBrain(BRAINS.opencode);
 }
 
-// Basenames the worker is willing to exec as the OpenCode brain. This stops a
-// misconfigured AGENTOS_OPENCODE_PATH or opencode_path setting from pointing the
-// worker at an unrelated binary (e.g. /usr/bin/rm) that is then executed with
-// task prompts.
-const OPENCODE_BASENAMES = new Set(['opencode', 'opencode.exe']);
-
 /**
- * True when p may be used as the OpenCode executable. Bare names without a
- * directory separator defer resolution to PATH and are allowed only if their
- * basename is in the allowlist. Named paths must exist, be regular files, and
- * be executable.
+ * True when p may be used as the given brain's executable. Bare names without
+ * a directory separator defer resolution to PATH and are allowed only if their
+ * basename is in that brain's allowlist. Named paths must exist, be regular
+ * files, and be executable. This stops a misconfigured path setting from
+ * pointing the worker at an unrelated binary (e.g. /usr/bin/rm) that is then
+ * executed with task prompts.
  */
-export function isAllowedOpenCodePath(p: string): boolean {
-  if (!OPENCODE_BASENAMES.has(path.basename(p))) return false;
+export function isAllowedOpenCodePath(p: string, brain: BrainId = 'opencode'): boolean {
+  if (!BRAINS[brain].basenames.includes(path.basename(p))) return false;
   if (!/[/\\]/.test(p)) return true;
   try {
     if (!fs.statSync(p).isFile()) return false;

@@ -99,6 +99,19 @@ On first start the server prints bootstrap credentials: from `AGENTOS_BOOTSTRAP_
 `AGENTOS_BOOTSTRAP_PASSWORD` when set, otherwise a randomly generated username and password
 (shown only once). You'll be forced to set a new password on first login.
 
+### Use it from Telegram
+
+Chat with your agent and manage AgentOS from your phone. No public URL is needed, because the bot long-polls Telegram.
+
+1. In Telegram, message **@BotFather**, send `/newbot`, and copy the token.
+2. Add `AGENTOS_TELEGRAM_BOT_TOKEN=<token>` to `.env` and restart AgentOS.
+3. Message your bot. It replies with your chat id. Add `AGENTOS_TELEGRAM_CHAT_IDS=<id>` to `.env` and restart again.
+
+Then just type to chat. Commands: `/new`, `/status`, `/tasks`, `/cancel`, `/retry`, `/approvals`
+(with approve/reject buttons), `/settings`, `/set <key> <value>` (brain, model, paths, working dir,
+timeout, …), `/agents`, `/agent <name> on|off`, `/memory`, `/automations`, `/automate`,
+`/autotoggle`, `/autodelete`. Send `/help` for the full list. Only allowlisted chat ids are served.
+
 ### Access from your LAN
 
 By default the server binds loopback (`127.0.0.1`) for safety. To expose it on your LAN, start

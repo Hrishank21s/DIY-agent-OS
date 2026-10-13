@@ -3,16 +3,11 @@ import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
 import { ChatService } from '../services/chat.js';
 import { TaskService } from '../services/tasks.js';
-import { ProjectService } from '../services/projects.js';
 import { MemoryService } from '../services/memory.js';
-import { NoteService } from '../services/notes.js';
-import { emitChatEvent } from '../services/realtime.js';
 
 const chat = new ChatService();
 const tasks = new TaskService();
-const projects = new ProjectService();
 const memorySvc = new MemoryService();
-const notes = new NoteService();
 
 const sendSchema = z.object({
   content: z.string().min(1).max(20000),
@@ -83,76 +78,14 @@ export function chatRoutes(app: FastifyInstance): void {
     if (!parsed.success) return reply.code(400).send({ error: 'Invalid request' });
     const { content, projectId } = parsed.data;
 
-    // Record the user message
-    const userMsg = chat.addMessage(id, 'user', content, { projectId: projectId || null });
-
-    const projected = projectId || conv.project_id || undefined;
-    const classification = chat.classify(content);
-    const meta = { kind: classification.kind, reason: classification.reason };
-
-    if (classification.kind === 'memory') {
-      chat.maybeExtractMemory(req.user!.id, content, id, projected);
-      chat.addMessage(id, 'agent', "Got it. I've saved that to long-term memory.", meta);
-      return reply.code(201).send({
-        message: chat.getMessage(userMsg.id),
-        reply: "Got it. I've saved that to long-term memory.",
-        classified: classification,
-      });
-    }
-
-    if (classification.kind === 'note') {
-      const noteTitle = (classification.extracted || 'Note').slice(0, 100);
-      const note = notes.create({
-        title: noteTitle,
-        content: classification.extracted || '',
-        note_type: 'personal',
-        project_id: projected || null,
-      });
-      chat.addMessage(id, 'agent', `Note created: ${note.title}`, meta);
-      return reply.code(201).send({ message: chat.getMessage(userMsg.id), note, classified: classification });
-    }
-
-    if (classification.kind === 'project') {
-      const pname = (classification.extracted || 'New Project').slice(0, 100);
-      const existing = projects.getByName(pname);
-      const project = existing || projects.create({ name: pname, description: content });
-      chat.addMessage(id, 'agent', `Project ready: ${project.name}`, meta);
-      return reply.code(201).send({ project, classified: classification });
-    }
-
-    if (classification.kind === 'automation') {
-      return reply.code(200).send({
-        message: chat.getMessage(userMsg.id),
-        reply: 'I can schedule this. Please open the Automations panel or use the JSON API to set the schedule, prompt, and agent.',
-        classified: classification,
-      });
-    }
-
-    // Default: create a task (task execution or conversational handled as task)
-    const task = tasks.create({
-      title: classification.title || content.slice(0, 60),
-      description: content,
-      conversation_id: id,
-      project_id: projected || null,
-      prompt: content,
-    });
-    chat.addMessage(id, 'system', 'Task queued', { taskId: task.id }, task.id);
-    emitChatEvent(id, { type: 'task', taskId: task.id });
-
-    // An assistant placeholder message that will be updated by the worker
-    chat.addMessage(
-      id,
-      'agent',
-      `⏳ Task queued — the agent will process: "${content.slice(0, 120)}"`,
-      { taskId: task.id, status: 'queued' },
-      task.id,
-    );
-
-    return reply.code(201).send({
-      message: chat.getMessage(userMsg.id),
-      taskId: task.id,
-      classified: classification,
-    });
+    const r = chat.send(id, req.user!.id, content, projectId || conv.project_id || undefined);
+    const message = chat.getMessage(r.userMsg.id);
+    const classified = r.classification;
+    if (r.project) return reply.code(201).send({ project: r.project, classified });
+    if (classified.kind === 'automation') return reply.code(200).send({ message, reply: r.reply, classified });
+    if (r.note) return reply.code(201).send({ message, note: r.note, classified });
+    if (r.taskId) return reply.code(201).send({ message, taskId: r.taskId, classified });
+    return reply.code(201).send({ message, reply: r.reply, classified });
   });
 
   app.post('/api/v1/chat/direct', { preHandler: requireAuth }, async (req, reply) => {

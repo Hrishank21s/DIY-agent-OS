@@ -260,6 +260,76 @@ export class ChatService {
     }
   }
 
+  /**
+   * Record a user message and act on it: save a memory, create a note or
+   * project, or queue a task whose reply the worker fills in later. Shared by
+   * the HTTP chat route and the Telegram bot.
+   */
+  send(convId: string, userId: string, content: string, projectId?: string): {
+    userMsg: Message;
+    classification: ClassifiedRequest;
+    reply?: string;
+    note?: ReturnType<NoteService['create']>;
+    project?: ReturnType<ProjectService['create']>;
+    taskId?: string;
+  } {
+    const userMsg = this.addMessage(convId, 'user', content, { projectId: projectId || null });
+    const classification = this.classify(content);
+    const meta = { kind: classification.kind, reason: classification.reason };
+
+    if (classification.kind === 'memory') {
+      this.maybeExtractMemory(userId, content, convId, projectId);
+      const reply = "Got it. I've saved that to long-term memory.";
+      this.addMessage(convId, 'agent', reply, meta);
+      return { userMsg, classification, reply };
+    }
+    if (classification.kind === 'note') {
+      const note = this.notes.create({
+        title: (classification.extracted || 'Note').slice(0, 100),
+        content: classification.extracted || '',
+        note_type: 'personal',
+        project_id: projectId || null,
+      });
+      const reply = `Note created: ${note.title}`;
+      this.addMessage(convId, 'agent', reply, meta);
+      return { userMsg, classification, reply, note };
+    }
+    if (classification.kind === 'project') {
+      const pname = (classification.extracted || 'New Project').slice(0, 100);
+      const project = this.projects.getByName(pname) || this.projects.create({ name: pname, description: content });
+      const reply = `Project ready: ${project.name}`;
+      this.addMessage(convId, 'agent', reply, meta);
+      return { userMsg, classification, reply, project };
+    }
+    if (classification.kind === 'automation') {
+      return {
+        userMsg,
+        classification,
+        reply: 'I can schedule this. Please open the Automations panel or use the JSON API to set the schedule, prompt, and agent.',
+      };
+    }
+
+    // Default: create a task (task execution or conversational handled as task)
+    const task = this.tasks.create({
+      title: classification.title || content.slice(0, 60),
+      description: content,
+      conversation_id: convId,
+      project_id: projectId || null,
+      prompt: content,
+    });
+    this.addMessage(convId, 'system', 'Task queued', { taskId: task.id }, task.id);
+    emitChatEvent(convId, { type: 'task', taskId: task.id });
+    // An assistant placeholder message that will be updated by the worker
+    this.addMessage(
+      convId,
+      'agent',
+      `⏳ Task queued — the agent will process: "${content.slice(0, 120)}"`,
+      { taskId: task.id, status: 'queued' },
+      task.id,
+    );
+    return { userMsg, classification, taskId: task.id };
+  }
+
   get context(): { tasks: TaskService; memory: MemoryService; notes: NoteService; projects: ProjectService } {
     return { tasks: this.tasks, memory: this.memory, notes: this.notes, projects: this.projects };
   }

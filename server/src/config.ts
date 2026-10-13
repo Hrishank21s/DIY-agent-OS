@@ -131,6 +131,8 @@ export interface AppConfig {
   cookieSecure: boolean;
   trustedOrigins: string[];
   rootDir: string;
+  telegramBotToken: string;
+  telegramChatIds: Set<string>;
 }
 
 const runtimeMode = parseRuntimeMode(process.env.AGENTOS_RUNTIME_MODE);
@@ -165,4 +167,8 @@ export const config: AppConfig = {
   cookieSecure: runtimeMode === 'production',
   trustedOrigins: parseTrustedOrigins(),
   rootDir,
+  telegramBotToken: process.env.AGENTOS_TELEGRAM_BOT_TOKEN || '',
+  telegramChatIds: new Set(
+    (process.env.AGENTOS_TELEGRAM_CHAT_IDS || '').split(',').map(s => s.trim()).filter(Boolean),
+  ),
 };

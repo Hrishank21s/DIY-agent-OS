@@ -15,6 +15,24 @@ const respondSchema = z.object({
   note: z.string().optional(),
 });
 
+/** Record an approval decision and requeue or fail its task. Shared with the Telegram bot. */
+export function respondToApproval(id: string, approve: boolean, userId: string, note?: string, ip?: string) {
+  const result = approvals.respond(id, approve, userId, note);
+  if (!result) return null;
+  const a = result.approval;
+  if (result.changed && a.task_id) {
+    if (a.status === 'approved') {
+      tasks.updateStatus(a.task_id, 'queued');
+      emitTaskStatus(a.task_id, 'queued');
+    } else {
+      tasks.updateStatus(a.task_id, 'failed', { error: 'Requires approval was rejected' });
+      emitTaskStatus(a.task_id, 'failed');
+    }
+  }
+  audit.record(`approval.${a.status}`, 'approval', { approvalId: id }, userId, ip);
+  return a;
+}
+
 export function approvalRoutes(app: FastifyInstance): void {
   app.get('/api/v1/approvals', { preHandler: requireAuth }, async (req) => {
     const q = (req.query as { status?: string }) || {};
@@ -36,20 +54,8 @@ export function approvalRoutes(app: FastifyInstance): void {
     const id = (req.params as { id: string }).id;
     const parsed = respondSchema.safeParse(req.body);
     if (!parsed.success) return reply.code(400).send({ error: 'Invalid request' });
-    const result = approvals.respond(id, parsed.data.approve, req.user!.id, parsed.data.note);
-    if (!result) return reply.code(404).send({ error: 'Approval not found' });
-    const a = result.approval;
-
-    if (result.changed && a.task_id) {
-      if (a.status === 'approved') {
-        tasks.updateStatus(a.task_id, 'queued');
-        emitTaskStatus(a.task_id, 'queued');
-      } else {
-        tasks.updateStatus(a.task_id, 'failed', { error: 'Requires approval was rejected' });
-        emitTaskStatus(a.task_id, 'failed');
-      }
-    }
-    audit.record(`approval.${a.status}`, 'approval', { approvalId: id }, req.user!.id, req.ip);
+    const a = respondToApproval(id, parsed.data.approve, req.user!.id, parsed.data.note, req.ip);
+    if (!a) return reply.code(404).send({ error: 'Approval not found' });
     return { approval: a };
   });
 

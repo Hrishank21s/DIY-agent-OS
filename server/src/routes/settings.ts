@@ -17,12 +17,12 @@ const updateAuthSchema = z.object({
   sessionDurationMinutes: z.number().int().min(5).max(10080).optional(),
 });
 
-const updateGeneralSchema = z.object({
+export const updateGeneralSchema = z.object({
   server_name: z.string().max(200).optional(),
   timezone: z.string().max(100).optional(),
 });
 
-const updateOpencodeSchema = z.object({
+export const updateOpencodeSchema = z.object({
   brain: z.enum(['opencode', 'antigravity']).optional(),
   opencode_path: z.string().max(2000).optional(),
   model: z.string().max(200).optional(),

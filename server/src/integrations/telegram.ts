@@ -11,6 +11,7 @@ import { hub } from '../services/realtime.js';
 import { respondToApproval } from '../routes/approvals.js';
 import { updateGeneralSchema, updateOpencodeSchema } from '../routes/settings.js';
 import type { TaskQueue } from '../workers/task-queue.js';
+import { config } from '../config.js';
 
 const log = getLogger();
 const MAX_MSG = 4000; // Telegram caps a message at 4096 chars
@@ -52,6 +53,8 @@ interface TgUpdate {
  * their chat id and ignored.
  */
 export class TelegramBot {
+  /** Chats that messaged the bot but aren't allowed yet; Settings offers to allow them. */
+  readonly strangers = new Map<string, number>();
   private offset = 0;
   private abort = new AbortController();
   // ponytail: in-memory, so a reply in flight across a server restart is lost (still visible in the dashboard)
@@ -143,7 +146,8 @@ export class TelegramBot {
     if (!msg?.text) return;
     const chatId = msg.chat.id;
     if (!this.allowedChatIds.has(String(chatId))) {
-      await this.send(chatId, `Not authorized. Add this chat id to AGENTOS_TELEGRAM_CHAT_IDS: ${chatId}`);
+      this.strangers.set(String(chatId), Date.now());
+      await this.send(chatId, `Not authorized yet. Open AgentOS → Settings → Telegram and allow this chat (id ${chatId}).`);
       return;
     }
     const text = msg.text.trim();
@@ -290,3 +294,34 @@ export class TelegramBot {
     return id;
   }
 }
+
+
+/**
+ * Owns the single running bot so Settings can (re)start it without a server
+ * restart. Config comes from the Settings tab, falling back to the env vars.
+ */
+export const telegramRuntime = {
+  queue: undefined as TaskQueue | undefined,
+  bot: null as TelegramBot | null,
+
+  token(): string {
+    return new SettingsService().get('telegram_bot_token') || config.telegramBotToken;
+  },
+
+  chatIds(): string[] {
+    const saved = new SettingsService().get('telegram_chat_ids');
+    return saved !== undefined
+      ? saved.split(',').map(s => s.trim()).filter(Boolean)
+      : [...config.telegramChatIds];
+  },
+
+  /** (Re)start the bot from current settings; no token means no bot. */
+  reload(): void {
+    this.bot?.stop();
+    this.bot = null;
+    const token = this.token();
+    if (!token) return;
+    this.bot = new TelegramBot(token, new Set(this.chatIds()), this.queue);
+    this.bot.start();
+  },
+};

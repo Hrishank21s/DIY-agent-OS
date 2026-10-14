@@ -173,6 +173,37 @@ describe('AgentWorker empty-result detection', () => {
     });
   });
 
+  it('marks task FAILED when the CLI exits non-zero with no text and no spawn error', async () => {
+    // Regression: `result.error` is only set on spawn failure, so a brain CLI
+    // that prints to stderr and exits 1 (missing GEMINI_API_KEY, bad model)
+    // used to fall through to `completed` with an empty chat reply.
+    const task = makeTask();
+    (taskService.get as any).mockReturnValue(task);
+
+    const executor = makeMockExecutor({
+      text: '',
+      events: [],
+      exitCode: 1,
+      timedOut: false,
+      cancelled: false,
+    });
+
+    const { AgentWorker } = await import('../src/workers/agent-worker.js');
+    const worker = new AgentWorker(
+      taskService, agentService, settingsService,
+      memoryService, projectService, noteService,
+      executor,
+    );
+
+    await worker.execute('task_test_1');
+
+    const statusCalls = (taskService.updateStatus as any).mock.calls;
+    expect(statusCalls.find((c: any[]) => c[1] === 'completed')).toBeUndefined();
+    const failedCall = statusCalls.find((c: any[]) => c[1] === 'failed');
+    expect(failedCall).toBeDefined();
+    expect(failedCall![2]).toMatchObject({ error: 'The AI brain exited with code 1' });
+  });
+
   it('completes task when exit code 0 and text is present', async () => {
     const task = makeTask();
     (taskService.get as any).mockReturnValue(task);

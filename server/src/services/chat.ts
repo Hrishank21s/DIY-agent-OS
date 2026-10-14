@@ -272,6 +272,7 @@ export class ChatService {
     note?: ReturnType<NoteService['create']>;
     project?: ReturnType<ProjectService['create']>;
     taskId?: string;
+    agentMsg?: Message;
   } {
     const userMsg = this.addMessage(convId, 'user', content, { projectId: projectId || null });
     const classification = this.classify(content);
@@ -317,17 +318,10 @@ export class ChatService {
       project_id: projectId || null,
       prompt: content,
     });
-    this.addMessage(convId, 'system', 'Task queued', { taskId: task.id }, task.id);
     emitChatEvent(convId, { type: 'task', taskId: task.id });
-    // An assistant placeholder message that will be updated by the worker
-    this.addMessage(
-      convId,
-      'agent',
-      `⏳ Task queued — the agent will process: "${content.slice(0, 120)}"`,
-      { taskId: task.id, status: 'queued' },
-      task.id,
-    );
-    return { userMsg, classification, taskId: task.id };
+    // Empty assistant message the worker fills in; the UI renders it as "typing".
+    const agentMsg = this.addMessage(convId, 'agent', '', { taskId: task.id, status: 'queued' }, task.id);
+    return { userMsg, classification, taskId: task.id, agentMsg };
   }
 
   get context(): { tasks: TaskService; memory: MemoryService; notes: NoteService; projects: ProjectService } {

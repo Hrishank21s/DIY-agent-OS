@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client';
+import TelegramSettings from './TelegramSettings';
 import { SessionInfo, SettingsData } from '../types';
 import {
   Button,
@@ -12,7 +13,7 @@ import {
   TimeText,
 } from '../components/Ui';
 
-type SettingsTab = 'general' | 'auth' | 'opencode' | 'agents' | 'memory' | 'security' | 'system';
+type SettingsTab = 'general' | 'auth' | 'opencode' | 'agents' | 'memory' | 'telegram' | 'security' | 'system';
 
 const TABS: { value: SettingsTab; label: string }[] = [
   { value: 'general', label: 'General' },
@@ -20,6 +21,7 @@ const TABS: { value: SettingsTab; label: string }[] = [
   { value: 'opencode', label: 'AI Brain' },
   { value: 'agents', label: 'Agents' },
   { value: 'memory', label: 'Memory' },
+  { value: 'telegram', label: 'Telegram' },
   { value: 'security', label: 'Security' },
   { value: 'system', label: 'System' },
 ];
@@ -307,6 +309,8 @@ export default function Settings() {
               </div>
             </div>
           )}
+
+          {tab === 'telegram' && <TelegramSettings />}
 
           {tab === 'opencode' && (
             <div className="form-grid settings-form">

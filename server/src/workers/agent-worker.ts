@@ -106,11 +106,17 @@ export class AgentWorker {
         updateChatReply(task, 'failed', result.text, 'Task timed out');
         return;
       }
-      if (result.exitCode !== 0 && !result.text && result.error) {
-        this.tasks.updateStatus(taskId, 'failed', { error: result.error, result: result.text });
-        this.tasks.addLog(taskId, 'error', result.error, 'worker');
+      // `result.error` is only set when the *spawn* fails, so it must not be
+      // part of this condition: a brain CLI that prints to stderr and exits
+      // non-zero (missing API key, bad model, auth failure) leaves it unset
+      // and used to fall through to `completed` with an empty reply.
+      if (result.exitCode !== 0 && !result.text) {
+        const exitError =
+          result.error || `The AI brain exited with code ${result.exitCode}`;
+        this.tasks.updateStatus(taskId, 'failed', { error: exitError, result: result.text });
+        this.tasks.addLog(taskId, 'error', exitError, 'worker');
         emitTaskStatus(taskId, 'failed');
-        updateChatReply(task, 'failed', result.text, result.error);
+        updateChatReply(task, 'failed', result.text, exitError);
         return;
       }
       if (result.exitCode === 0 && !result.text && result.events.length === 0) {

@@ -18,7 +18,7 @@ import { ApprovalService } from './services/approvals.js';
 import { AutomationService } from './services/automations.js';
 import { TaskQueue } from './workers/task-queue.js';
 import { Scheduler } from './scheduler/index.js';
-import { TelegramBot } from './integrations/telegram.js';
+import { telegramRuntime } from './integrations/telegram.js';
 
 import { authRoutes } from './routes/auth.js';
 import { chatRoutes } from './routes/chat.js';
@@ -201,10 +201,8 @@ export async function startServer(): Promise<ServerInstance> {
   await app.listen({ port: config.port, host: config.host });
   getLogger().info('system', `AgentOS listening on ${config.host}:${config.port}`);
 
-  const telegram = config.telegramBotToken
-    ? new TelegramBot(config.telegramBotToken, config.telegramChatIds, queue)
-    : null;
-  telegram?.start();
+  telegramRuntime.queue = queue;
+  telegramRuntime.reload();
 
   if (
     config.runtimeMode === 'production' &&
@@ -222,7 +220,7 @@ export async function startServer(): Promise<ServerInstance> {
 
   const shutdown = async (signal: string) => {
     getLogger().info('system', `Received ${signal}, shutting down...`);
-    telegram?.stop();
+    telegramRuntime.bot?.stop();
     await scheduler.stop();
     await queue.stop();
     try {

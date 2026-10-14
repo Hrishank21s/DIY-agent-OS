@@ -9,6 +9,8 @@ import { BRAINS, detectBrain, type BrainProfile } from './brains.js';
 /** Cap unbounded result text/events so a runaway model cannot OOM the server (#18). */
 export const MAX_RESULT_TEXT = 200_000;
 export const MAX_RESULT_EVENTS = 10_000;
+/** Bounded stderr tail kept so a non-zero exit can say *why* it failed. */
+export const MAX_STDERR_TAIL = 4_000;
 
 export interface OpenCodeEvent {
   type: string;
@@ -161,6 +163,11 @@ export class OpenCodeCliExecutor implements OpenCodeExecutor {
         clearTimeout(timer);
         result.timedOut = timedOut;
         result.cancelled = cancelled;
+        // A cancel/timeout kills the child, so its non-zero exit is expected
+        // and must not be reported as a brain failure.
+        if (!result.error && !cancelled && !timedOut && result.exitCode !== null && result.exitCode !== 0) {
+          result.error = stderrTail.trim() || `exited with code ${result.exitCode}`;
+        }
         // Cap unbounded text/event accumulation (LOW #18).
         const capText = (s: string) => (s.length <= MAX_RESULT_TEXT ? s : `${s.slice(0, MAX_RESULT_TEXT)}\n…[output truncated]`);
         result.text = capText(result.text);
@@ -234,8 +241,12 @@ export class OpenCodeCliExecutor implements OpenCodeExecutor {
         }
       });
 
+      let stderrTail = '';
       child.stderr.on('data', d => {
         const s = d.toString();
+        // The CLIs report auth/model failures here and exit non-zero without
+        // emitting any JSON event, so this tail is the only diagnostic.
+        stderrTail = (stderrTail + s).slice(-MAX_STDERR_TAIL);
         if (opts.onStderr) opts.onStderr(s);
       });
 

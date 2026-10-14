@@ -5,6 +5,7 @@ import { SettingsService } from '../services/settings.js';
 import { AuthService } from '../services/auth.js';
 import { TrustedPathsService } from '../services/trusted-paths.js';
 import { getLogger } from '../lib/logger.js';
+import { telegramRuntime } from '../integrations/telegram.js';
 
 const settings = new SettingsService();
 const auth = new AuthService();
@@ -111,5 +112,38 @@ export function settingsRoutes(app: FastifyInstance): void {
       settings.set('approval_rules', JSON.stringify(parsed.data.approval_rules));
     }
     return { ok: true };
+  });
+
+  app.get('/api/v1/settings/telegram', { preHandler: requireAuth }, async () => ({
+    tokenSet: !!telegramRuntime.token(),
+    running: !!telegramRuntime.bot,
+    chatIds: telegramRuntime.chatIds(),
+    strangers: [...(telegramRuntime.bot?.strangers.keys() ?? [])],
+  }));
+
+  app.put('/api/v1/settings/telegram', { preHandler: requireAuth }, async (req, reply) => {
+    const parsed = z
+      .object({
+        botToken: z.string().max(200).optional(),
+        chatIds: z.array(z.string().regex(/^-?\d{1,20}$/)).max(50).optional(),
+      })
+      .safeParse(req.body);
+    if (!parsed.success) return reply.code(400).send({ error: 'Invalid request' });
+    const { botToken, chatIds } = parsed.data;
+    let botUsername: string | undefined;
+    if (botToken !== undefined) {
+      if (botToken) {
+        const res = (await fetch(`https://api.telegram.org/bot${botToken}/getMe`)
+          .then(r => r.json())
+          .catch(() => null)) as { ok?: boolean; result?: { username?: string } } | null;
+        if (!res?.ok) return reply.code(400).send({ error: 'Telegram rejected that bot token' });
+        botUsername = res.result?.username;
+      }
+      settings.set('telegram_bot_token', botToken);
+    }
+    if (chatIds) settings.set('telegram_chat_ids', chatIds.join(','));
+    telegramRuntime.reload();
+    log.info('settings', 'Telegram settings updated', { running: !!telegramRuntime.bot });
+    return { ok: true, botUsername };
   });
 }

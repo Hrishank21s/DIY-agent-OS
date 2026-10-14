@@ -142,15 +142,6 @@ export default function Chat() {
       const id = (d.taskId ?? d.task_id ?? d.id) as string | undefined;
       if (id) {
         setLiveTasks((prev) => ({ ...prev, [id]: d as unknown as LiveTask }));
-        const status = d.status as string;
-        if (status === 'completed' || status === 'failed' || status === 'cancelled') {
-          setSelectedId((cur) => {
-            if (cur) {
-              fetchMessages(cur);
-            }
-            return cur;
-          });
-        }
       }
     });
     const unsubOutput = subscribe('task:output', (data) => {
@@ -199,7 +190,14 @@ export default function Chat() {
       unsubApprovalResponded();
       unsubChat();
     };
-  }, [subscribe, selectedId, fetchMessages, upsertMessage]);
+  }, [subscribe, selectedId, upsertMessage]);
+
+  // Resync after an SSE reconnect so nothing missed while offline stays hidden.
+  useEffect(() => {
+    if (connected && selectedId) {
+      fetchMessages(selectedId);
+    }
+  }, [connected, selectedId, fetchMessages]);
 
   const createConversation = async () => {
     try {
@@ -238,9 +236,13 @@ export default function Chat() {
       const data = await api.post<{
         message: Message;
         taskId?: string | null;
+        agentMessage?: Message;
         reply?: string;
       }>(`/chat/conversations/${selectedId}/messages`, { content });
       setMessages((prev) => prev.map((m) => (m.id === optimisticId ? data.message : m)));
+      if (data.agentMessage) {
+        upsertMessage(data.agentMessage);
+      }
       if (data.taskId) {
         setLiveTasks((prev) => ({
           ...prev,
@@ -312,9 +314,6 @@ export default function Chat() {
     }
   };
 
-  const liveTaskEntries = Object.values(liveTasks);
-  const streamTasks = liveTaskEntries.filter((t) => streams[t.id]);
-
   return (
     <div className="chat-page">
       <div className="chat-sidebar">
@@ -385,44 +384,25 @@ export default function Chat() {
         {selectedId && (
           <div className="chat-pane">
             <div className="thread" ref={threadRef}>
-              {messages.map((m) => (
-                <div key={m.id} className={`bubble bubble-${m.role}`}>
-                  <div className="bubble-role">{m.role}</div>
-                  <div className="bubble-content monospace-wrap">{m.content}</div>
-                  {m.task_id && (
-                    <div className="bubble-task">
-                      <StatusBadge status={liveTasks[m.task_id]?.status ?? 'unknown'} />
-                    </div>
-                  )}
-                </div>
-              ))}
-
-              {liveTaskEntries.map((t) => {
-                const output = streams[t.id];
-                const isActive =
-                  t.status === 'queued' || t.status === 'running' || t.status === 'in_progress';
-                return (
-                  <div key={t.id} className={`task-activity ${isActive ? 'task-active' : ''}`}>
-                    <div className="task-activity-head">
-                      <span className="task-activity-title">{t.title || 'Agent task'}</span>
-                      <StatusBadge status={t.status ?? 'unknown'} />
-                    </div>
-                    {t.approval_state && t.approval_state !== 'none' && (
-                      <div className="approval-inline">
-                        <span>Approval {t.approval_state}</span>
+              {messages
+                .filter((m) => m.role !== 'system')
+                .map((m) => {
+                  const isAgent = m.role !== 'user';
+                  const pending = isAgent && !m.content && m.meta?.status === 'queued';
+                  const live = pending && m.task_id
+                    ? (streams[m.task_id] ?? [])
+                        .filter((o) => o.stream !== 'stderr')
+                        .map((o) => o.chunk)
+                        .join('')
+                    : '';
+                  return (
+                    <div key={m.id} className={`bubble bubble-${isAgent ? 'assistant' : m.role}`}>
+                      <div className="bubble-content monospace-wrap">
+                        {pending ? live || <span className="typing">AgentOS is typing…</span> : m.content}
                       </div>
-                    )}
-                    {output && output.length > 0 && (
-                      <pre className="task-output">
-                        {output.map((o, i) => (
-                          <span key={i}>{o.chunk}</span>
-                        ))}
-                      </pre>
-                    )}
-                    {isActive && <div className="task-pulse">working</div>}
-                  </div>
-                );
-              })}
+                    </div>
+                  );
+                })}
 
               {Object.values(approvals).map((a) => (
                 <div key={a.id} className="approval-card">
@@ -458,16 +438,6 @@ export default function Chat() {
                 </div>
               ))}
             </div>
-
-            {streamTasks.length > 0 && (
-              <div className="task-summary">
-                {streamTasks.map((t) => (
-                  <span key={t.id} className="tag">
-                    {t.title || t.id} streaming
-                  </span>
-                ))}
-              </div>
-            )}
 
             <div className="composer">
               {sendError && <InlineError message={sendError} />}

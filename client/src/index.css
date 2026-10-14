@@ -1944,3 +1944,7 @@ select.input {
     grid-template-columns: 1fr 1fr;
   }
 }
+.typing {
+  color: var(--text-muted);
+  animation: pulse 1.2s ease-in-out infinite;
+}

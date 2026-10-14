@@ -104,8 +104,10 @@ On first start the server prints bootstrap credentials: from `AGENTOS_BOOTSTRAP_
 Chat with your agent and manage AgentOS from your phone. No public URL is needed, because the bot long-polls Telegram.
 
 1. In Telegram, message **@BotFather**, send `/newbot`, and copy the token.
-2. Add `AGENTOS_TELEGRAM_BOT_TOKEN=<token>` to `.env` and restart AgentOS.
-3. Message your bot. It replies with your chat id. Add `AGENTOS_TELEGRAM_CHAT_IDS=<id>` to `.env` and restart again.
+2. In AgentOS open **Settings → Telegram**, paste the token and save. The bot starts immediately, with no restart.
+3. Send any message to your bot, then click **Allow** next to your chat in Settings → Telegram.
+
+(`AGENTOS_TELEGRAM_BOT_TOKEN` / `AGENTOS_TELEGRAM_CHAT_IDS` in `.env` still work as a fallback.)
 
 Then just type to chat. Commands: `/new`, `/status`, `/tasks`, `/cancel`, `/retry`, `/approvals`
 (with approve/reject buttons), `/settings`, `/set <key> <value>` (brain, model, paths, working dir,

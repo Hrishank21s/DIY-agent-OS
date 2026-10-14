@@ -13,7 +13,7 @@
 | --- | --- |
 | Name | AgentOS (repo dir `DIY-agent-OS`) |
 | Type | node (TypeScript) |
-| Root | `/Users/hrishank21s/Desktop/Projects/open code agent/DIY-agent-OS` |
+| Root | `/Users/hrishank21s/Desktop/Projects/agent-os/DIY-agent-OS` |
 | Package manager | npm (workspaces monorepo) |
 | Monorepo | yes — `workspaces: ["server", "client"]` |
 | License | MIT |

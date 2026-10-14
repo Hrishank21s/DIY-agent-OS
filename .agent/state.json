@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "project": {
     "name": "DIY-agent-OS (AgentOS)",
-    "root": "/Users/hrishank21s/Desktop/Projects/open code agent/DIY-agent-OS",
+    "root": "/Users/hrishank21s/Desktop/Projects/agent-os/DIY-agent-OS",
     "type": "node",
     "packageManager": "npm",
     "monorepo": true

@@ -1,7 +1,7 @@
 import { getDb } from '../db/index.js';
 import { BRAINS, asBrainId, type BrainId } from '../executors/brains.js';
 
-const SECURE_KEYS = new Set(['password_hash']);
+const SECURE_KEYS = new Set(['password_hash', 'telegram_bot_token']);
 
 export class SettingsService {
   get(key: string): string | undefined {

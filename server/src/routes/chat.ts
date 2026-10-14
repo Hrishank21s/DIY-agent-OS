@@ -84,7 +84,7 @@ export function chatRoutes(app: FastifyInstance): void {
     if (r.project) return reply.code(201).send({ project: r.project, classified });
     if (classified.kind === 'automation') return reply.code(200).send({ message, reply: r.reply, classified });
     if (r.note) return reply.code(201).send({ message, note: r.note, classified });
-    if (r.taskId) return reply.code(201).send({ message, taskId: r.taskId, classified });
+    if (r.taskId) return reply.code(201).send({ message, taskId: r.taskId, agentMessage: r.agentMsg, classified });
     return reply.code(201).send({ message, reply: r.reply, classified });
   });
 
